@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Sistem Pemantauan Karyawan - Uji Coba</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f6f9; color: #333; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px 0; }
+        .kotak-utama { background: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 450px; position: relative; }
+        h2 { margin-top: 0; color: #222; border-bottom: 2px solid #ddd; padding-bottom: 10px; padding-right: 80px; } 
+        h3 { margin-top: 15px; color: #444; }
+        .hidden { display: none; }
+        
+        /* Navigasi & Tabel */
+        .nav-menu { display: flex; gap: 10px; margin-top: 15px; margin-bottom: 15px; }
+        .btn-menu { flex: 1; padding: 10px; background-color: #6c757d; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 11px; }
+        .btn-menu.aktif { background-color: #007bff; }
+        .btn-kembali { background-color: #dc3545; padding: 8px 15px; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; margin-bottom: 15px; }
+        .btn-export { background-color: #28a745; margin-top: 15px; padding: 10px; font-size: 14px; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
+        
+        /* Tombol Logout */
+        .btn-logout { position: absolute; top: 30px; right: 30px; background-color: #dc3545; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer; }
+        .btn-logout:hover { background-color: #bd2130; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 15px; }
+        th, td { padding: 10px; border: 1px solid #ddd; text-align: left; font-size: 13px; }
+        th { background-color: #f8f9fa; }
+        
+        /* Link & Badge */
+        .link-karyawan { color: #007bff; text-decoration: none; font-weight: bold; cursor: pointer; }
+        .link-karyawan:hover { text-decoration: underline; }
+        .badge-online { background-color: #28a745; color: white; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; }
+        .badge-hapus { color: #dc3545; font-weight: bold; }
+        .badge-copy { color: #28a745; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div id="div-login" class="kotak-utama">
+    <h2>Login Admin</h2>
+    <div class="input-grup">
+        <label>USERNAME</label>
+        <input type="text" id="username" placeholder="Masukkan username..." style="width:100%; padding:10px; margin-bottom:10px;" autofocus>
+    </div>
+    <div class="input-grup">
+        <label>PASSWORD</label>
+        <input type="password" id="password" placeholder="Masukkan password..." style="width:100%; padding:10px; margin-bottom:15px;" onkeyup="if(event.key==='Enter') prosesLogin()">
+    </div>
+    <button class="btn" style="width:100%; padding:12px; background:#007bff; color:white; border:none; font-weight:bold; cursor:pointer;" onclick="prosesLogin()">MASUK</button>
+    <div id="pesan-eror" style="color:red; margin-top:10px; text-align:center;"></div>
+</div>
+
+<div id="div-master-list" class="kotak-utama hidden" style="width: 600px;">
+    <button class="btn-logout" onclick="fungsiLogOut()">Keluar</button>
+    <h2>Daftar Karyawan Terpantau</h2>
+    <p>Pilih nama karyawan untuk melihat detail log & CCTV monitor:</p>
+    <table>
+        <thead>
+            <tr>
+                <th>Nama Karyawan</th>
+                <th>Divisi</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody id="tabel-list-karyawan">
+            <tr><td colspan="3" style="text-align: center; color: #888;">Menunggu data agen aktif...</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<div id="div-detail-karyawan" class="kotak-utama hidden" style="width: 750px;">
+    <button class="btn-logout" onclick="fungsiLogOut()">Keluar</button>
+    <button class="btn-kembali" onclick="kembaliKeMaster()">&larr; Kembali ke Daftar</button>
+    <h2>Monitoring: <span id="nama-karyawan-aktif">Nama</span> (<span id="divisi-karyawan-aktif">Divisi</span>)</h2>
+    
+    <div class="nav-menu">
+        <button id="menu-hw" class="btn-menu aktif" onclick="gantiMenu('hw')">📊 AUDIT DATA HARDWARE</button>
+        <button id="menu-file" class="btn-menu" onclick="gantiMenu('file')">📁 AUDIT AKTIVITAS FILE</button>
+        <button id="menu-ss" class="btn-menu" onclick="gantiMenu('ss')">📸 SCREEN CAPTURE (SOON)</button>
+    </div>
+
+    <div id="konten-hw">
+        <h3>Spesifikasi Komputer Target</h3>
+        <table>
+            <tr><th style="width: 30%;">Komponen</th><th>Nilai Data PC Target</th></tr>
+            <tr><td><b>MAC Address</b></td><td id="txt-mac">-</td></tr>
+            <tr><td><b>IP Address</b></td><td id="txt-ip">-</td></tr>
+            <tr><td><b>Spesifikasi CPU</b></td><td id="txt-cpu">-</td></tr>
+        </table>
+    </div>
+
+    <div id="konten-file" class="hidden">
+        <h3>Audit Perubahan File (Folder: C:\Company_Audit)</h3>
+        <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px;">
+            <table style="margin: 0;">
+                <thead>
+                    <tr>
+                        <th style="width: 20%;">Waktu</th>
+                        <th style="width: 25%;">Aktivitas</th>
+                        <th>Nama & Path File</th>
+                    </tr>
+                </thead>
+                <tbody id="tabel-log-file">
+                    <tr><td colspan="3" style="text-align: center; color: #888;">Belum ada aktivitas file terdeteksi...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <button class="btn btn-export" onclick="exportLaporanTxt()">📥 EXPORT LAPORAN FILE (.TXT)</button>
+    </div>
+
+    <div id="konten-ss" class="hidden">
+        <h3>Hasil Pemantauan CCTV Layar Target (Metode Hybrid)</h3>
+        <p style="color: #666; font-style: italic; font-size: 12px;">Gambar otomatis terkompresi (~40KB) demi menghemat penyimpanan server.</p>
+        
+        <div id="galeri-screenshot" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; max-height: 350px; overflow-y: auto; border: 1px solid #ddd; padding: 15px; border-radius: 4px; background: #fafafa;">
+            <p style="text-align: center; color: #888; grid-column: 1/-1;">Belum ada rekaman gambar masuk...</p>
+        </div>
+    </div>
+</div>
+
+<script>
+    let cacheKaryawan = {}; 
+    let globalLogs = [];
+    let macTerpilih = null;  
+    let intervalServer = null; 
+
+    window.onload = function() {
+        const statusLogin = localStorage.getItem("isLoggedIn");
+        if (statusLogin === "true") {
+            masukKeSistem();
+        }
+    }
+
+    function prosesLogin() {
+        const user = document.getElementById('username').value;
+        const pass = document.getElementById('password').value;
+        const infoEror = document.getElementById('pesan-eror');
+
+        if (user === "admin" && pass === "123") {
+            localStorage.setItem("isLoggedIn", "true");
+            masukKeSistem();
+        } else {
+            infoEror.innerText = "Username/Password Salah!";
+        }
+    }
+
+    function masukKeSistem() {
+        document.getElementById('div-login').classList.add('hidden');
+        document.getElementById('div-master-list').classList.remove('hidden');
+        document.getElementById('username').value = ""; 
+        document.getElementById('password').value = "";
+        document.getElementById('pesan-eror').innerText = "";
+        
+        if(!intervalServer) {
+            intervalServer = setInterval(tarikDataServer, 2000);
+        }
+    }
+
+    function fungsiLogOut() {
+        localStorage.removeItem("isLoggedIn");
+        if(intervalServer) {
+            clearInterval(intervalServer);
+            intervalServer = null;
+        }
+        macTerpilih = null;
+        document.getElementById('div-master-list').classList.add('hidden');
+        document.getElementById('div-detail-karyawan').classList.add('hidden');
+        document.getElementById('div-login').classList.remove('hidden');
+    }
+
+    function lihatDetailPC(mac) {
+        macTerpilih = mac;
+        const pc = cacheKaryawan[mac];
+        if (pc) {
+            document.getElementById('nama-karyawan-aktif').innerText = pc.nama_karyawan;
+            document.getElementById('divisi-karyawan-aktif').innerText = pc.divisi;
+            document.getElementById('div-master-list').classList.add('hidden');
+            document.getElementById('div-detail-karyawan').classList.remove('hidden');
+            updateTampilanDetail();
+        }
+    }
+
+    function kembaliKeMaster() {
+        macTerpilih = null;
+        document.getElementById('div-detail-karyawan').classList.add('hidden');
+        document.getElementById('div-master-list').classList.remove('hidden');
+    }
+
+    function gantiMenu(m) {
+        ['hw','file','ss'].forEach(x => {
+            document.getElementById('konten-'+x).classList.add('hidden');
+            document.getElementById('menu-'+x).classList.remove('aktif');
+        });
+        document.getElementById('konten-'+m).classList.remove('hidden');
+        document.getElementById('menu-'+m).classList.add('aktif'); // <-- SUDAH DI-FIX DISINI
+    }
+
+    async function tarikDataServer() {
+        try {
+            const resHW = await fetch('/api/get-hardware-data');
+            const listPC = await resHW.json();
+            
+            listPC.forEach(pc => { cacheKaryawan[pc.mac] = pc; });
+
+            if (!macTerpilih && listPC.length > 0) {
+                const tbodyHW = document.getElementById('tabel-list-karyawan');
+                let htmlHW = "";
+                listPC.forEach(pc => {
+                    htmlHW += `<tr>
+                        <td><a class="link-karyawan" onclick="lihatDetailPC('${pc.mac}')">${pc.nama_karyawan}</a></td>
+                        <td>${pc.divisi}</td>
+                        <td><span class="badge-online">${pc.status}</span></td>
+                    </tr>`;
+                });
+                tbodyHW.innerHTML = htmlHW;
+            }
+
+            if (macTerpilih) {
+                updateTampilanDetail();
+            }
+        } catch(e){}
+    }
+
+    function updateTampilanDetail() {
+        const pc = cacheKaryawan[macTerpilih];
+        if (!pc) return;
+
+        document.getElementById('txt-mac').innerText = pc.mac;
+        document.getElementById('txt-ip').innerText = pc.ip;
+        document.getElementById('txt-cpu').innerText = pc.cpu;
+
+        // 1. Ambil Log Aktivitas File (Bawaan Lama)
+        fetch('/api/get-activity-logs')
+            .then(res => res.json())
+            .then(logs => {
+                globalLogs = logs.filter(log => log.mac === macTerpilih);
+                const tbodyFile = document.getElementById('tabel-log-file');
+                
+                if (globalLogs.length > 0) {
+                    let htmlFile = "";
+                    globalLogs.forEach(log => {
+                        const badgeStyle = log.tipe_aksi === "DIHAPUS" ? "badge-hapus" : "badge-copy";
+                        htmlFile += `<tr>
+                            <td>${log.waktu}</td>
+                            <td><span class="${badgeStyle}">${log.tipe_aksi}</span></td>
+                            <td><b>${log.nama_file}</b><br><small style="color: #666;">${log.path_file}</small></td>
+                        </tr>`;
+                    });
+                    tbodyFile.innerHTML = htmlFile;
+                } else {
+                    tbodyFile.innerHTML = `<tr><td colspan="3" style="text-align: center; color: #888;">Belum ada aktivitas file terdeteksi...</td></tr>`;
+                }
+            });
+
+        // =========================================================================
+        // [SINKRON] 2. AMBIL LOG SCREENSHOT TERBARU DARI DATABASE POOL XAMPP
+        // =========================================================================
+        fetch(`/api/get-screenshot-logs?mac=${macTerpilih}`)
+            .then(res => res.json())
+            .then(images => {
+                const wadahGaleri = document.getElementById('galeri-screenshot');
+                
+                if (images && images.length > 0) {
+                    let htmlGambar = "";
+                    images.forEach(img => {
+                        // Cek apakah pemicunya ALERT (Delete) atau ROUTINE (10 detik sekali)
+                        const isAlert = img.tipe_pemicu === "ALERT" || img.tipe === "ALERT";
+                        const warnaPemicu = isAlert ? "#dc3545" : "#28a745";
+                        const teksPemicu = isAlert ? "🚨 ALERT (DELETE)" : "⏱️ ROUTINE";
+                        const bgCard = isAlert ? "#fff5f5" : "white";
+                        const borderCard = isAlert ? "1px solid #feb2b2" : "1px solid #eee";
+
+                        htmlGambar += `
+                            <div style="background: ${bgCard}; border: ${borderCard}; padding: 8px; border-radius: 4px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                                <span style="font-size: 11px; font-weight: bold; color: ${warnaPemicu};">${teksPemicu}</span>
+                                <a href="${img.gambar_url || img.url_gambar}" target="_blank">
+                                    <img src="${img.gambar_url || img.url_gambar}" style="width: 100%; height: 110px; object-fit: cover; border-radius: 2px; margin-top: 5px; border: 1px solid #ddd;" onerror="this.src='https://via.placeholder.com/200x110?text=Gambar+Mati'">
+                                </a>
+                                <div style="font-size: 11px; margin-top: 5px; color: #555;">${new Date(img.waktu).toLocaleTimeString()}</div>
+                                <a href="${img.gambar_url || img.url_gambar}" download="SS_${img.mac}_${Date.now()}.jpg" style="display: block; margin-top: 5px; padding: 4px; background: #007bff; color: white; text-decoration: none; font-size: 11px; font-weight: bold; border-radius: 3px;">📥 Download</a>
+                            </div>
+                        `;
+                    });
+                    wadahGaleri.innerHTML = htmlGambar;
+                } else {
+                    wadahGaleri.innerHTML = `<p style="text-align: center; color: #888; grid-column: 1/-1;">Belum ada rekaman gambar masuk dari PC ini...</p>`;
+                }
+            }).catch(err => {
+                wadahGaleri.innerHTML = `<p style="text-align: center; color: #dc3545; grid-column: 1/-1;">Gagal memuat galeri dari server.</p>`;
+            });
+    }
+
+    function exportLaporanTxt() {
+        if (globalLogs.length === 0) { return alert("Tidak ada data log!"); }
+        let name = document.getElementById('nama-karyawan-aktif').innerText;
+        let isiTeks = `==================================================\n   LAPORAN AUDIT FILE KARYAWAN: ${name.toUpperCase()}\n==================================================\n\n`;
+        globalLogs.forEach((log, index) => {
+            isiTeks += `${index + 1}. [${log.waktu}] - AKSI: ${log.tipe_aksi}\n   Nama File : ${log.nama_file}\n   Path Asli : ${log.path_file}\n--------------------------------------------------\n`;
+        });
+        const blob = new Blob([isiTeks], { type: "text/plain;charset=utf-8" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `Laporan_File_${name}_${Date.now()}.txt`;
+        link.click();
+    }
+</script>
+</body>
+</html>
