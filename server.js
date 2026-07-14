@@ -1,5 +1,8 @@
 const express = require('express');
-const mysql = require('mysql2'); // Memanggil pustaka mysql2
+const mysql = require('mysql2'); 
+const fs = require('fs');        
+const path = require('path');    
+
 const app = express();
 const PORT = 3535;
 
@@ -11,20 +14,18 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static('public'));
 
 // =========================================================================
-// [PERBAIKAN] : GANTI KONEKSI TUNGGAL MENJADI CONNECTION POOL (ANTI-CRASH)
-// Keterangan: Manajemen 20 antrean otomatis biar MySQL XAMPP kaga pingsan lagi
+// [PERBAIKAN] : KONEKSI DATABASE POOL (ANTI-CRASH)
 // =========================================================================
 const db = mysql.createPool({
     host: 'localhost',
-    user: 'root',          // User bawaan XAMPP
-    password: '',          // Password bawaan XAMPP kosong
-    database: 'db_monitoring', // Nama database lu
+    user: 'root',          
+    password: '',          
+    database: 'db_monitoring', 
     waitForConnections: true,
-    connectionLimit: 20,   // Membuka hingga 20 pintu antrean paralel jika data padat
+    connectionLimit: 20,   
     queueLimit: 0
 });
 
-// Jalankan tes pengecekan koneksi pool saat server pertama kali dinyalakan
 db.getConnection((err, koneksiAwal) => {
     if (err) {
         console.error('==================================================');
@@ -35,13 +36,15 @@ db.getConnection((err, koneksiAwal) => {
     console.log('==================================================');
     console.log('[OK] BERHASIL TERHUBUNG KE DATABASE MYSQL VIA POOL');
     console.log('==================================================');
-    koneksiAwal.release(); // Kembalikan koneksi awal ke dalam antrean pool
+    koneksiAwal.release(); 
 });
 
-// MEMORI SEMENTARA (Hanya untuk penampung list komputer aktif di halaman depan)
+// MEMORI SEMENTARA 
 let daftarAgenKomputer = {};
 
-// 2. ENDPOINT POST: Menerima register hardware & simpan langsung ke DATABASE
+// =========================================================================
+// 1. ENDPOINT POST: SIMPAN HARDWARE
+// =========================================================================
 app.post('/api/report-hardware', (req, res) => {
     const dataMasuk = req.body;
     if (dataMasuk && dataMasuk.mac) {
@@ -51,18 +54,11 @@ app.post('/api/report-hardware', (req, res) => {
         const ip = dataMasuk.ip || "0.0.0.0";
         const cpu = dataMasuk.cpu || "Windows Device";
 
-        // Amankan juga di memori ram sementara untuk status ONLINE aktif
         daftarAgenKomputer[mac] = {
-            nama_karyawan: nama,
-            divisi: divisi,
-            mac: mac,
-            ip: ip,
-            cpu: cpu,
-            status: "ONLINE",
-            waktu_update: new Date().toLocaleTimeString()
+            nama_karyawan: nama, divisi: divisi, mac: mac, ip: ip, cpu: cpu,
+            status: "ONLINE", waktu_update: new Date().toLocaleTimeString()
         };
 
-        // Query SQL sakti: Jika MAC sudah ada, otomatis UPDATE datanya. Jika belum, INSERT baru!
         const queryHardware = `
             INSERT INTO komputer_karyawan (mac, nama_karyawan, divisi, ip_address, cpu_name, status)
             VALUES (?, ?, ?, ?, ?, 'ONLINE')
@@ -71,10 +67,7 @@ app.post('/api/report-hardware', (req, res) => {
         `;
 
         db.query(queryHardware, [mac, nama, divisi, ip, cpu, nama, divisi, ip, cpu], (err, result) => {
-            if (err) {
-                console.error('[EROR] Gagal simpan spek hardware ke DB: ', err.message);
-                return res.status(500).json({ status: "GAGAL" });
-            }
+            if (err) return res.status(500).json({ status: "GAGAL" });
             console.log(`[DATABASE SPEK] Identitas komputer ${nama} berhasil dikunci ke DB.`);
             return res.json({ status: "OK" });
         });
@@ -83,14 +76,14 @@ app.post('/api/report-hardware', (req, res) => {
     }
 });
 
-// 3. ENDPOINT POST: MENYIMPAN AKTIVITAS FILE LANGSUNG KE DATABASE (8 KOLOM)
+// =========================================================================
+// 2. ENDPOINT POST: SIMPAN LOG AKTIVITAS FILE
+// =========================================================================
 app.post('/api/report-activity', (req, res) => {
     const logBaru = req.body;
 
     if (logBaru && logBaru.mac) {
-        // Ambil data karyawan dari memori sementara berdasarkan MAC Address-nya
         const infoKaryawan = daftarAgenKomputer[logBaru.mac] || { nama_karyawan: "Unknown", divisi: "Unknown" };
-
         const namaKaryawan = infoKaryawan.nama_karyawan;
         const divisi = infoKaryawan.divisi;
         const mac = logBaru.mac;
@@ -98,17 +91,13 @@ app.post('/api/report-activity', (req, res) => {
         const tipeAksi = logLogAktivitasTipe(logBaru.tipe_aksi);
         const namaFile = logBaru.nama_file;
 
-        // Perintah SQL INSERT untuk memasukkan data pas ke 7 kolom (ID nomor 1 otomatis terisi)
         const queryInsert = `
             INSERT INTO log_pantau_karyawan (nama_karyawan, divisi, mac_address, ip_address, tipe_aksi, nama_file, waktu_kejadian) 
             VALUES (?, ?, ?, ?, ?, ?, NOW())
         `;
 
         db.query(queryInsert, [namaKaryawan, divisi, mac, ip, tipeAksi, namaFile], (err, result) => {
-            if (err) {
-                console.error('[EROR] Gagal simpan log ke DB: ', err);
-                return res.status(500).json({ status: "GAGAL" });
-            }
+            if (err) return res.status(500).json({ status: "GAGAL" });
             console.log(`[DATABASE AMAN] Berhasil mencatat aksi ${tipeAksi} untuk file: ${namaFile}`);
             return res.json({ status: "OK" });
         });
@@ -117,7 +106,6 @@ app.post('/api/report-activity', (req, res) => {
     }
 });
 
-// Helper teks status yang disesuaikan
 function logLogAktivitasTipe(aksi) {
     if (aksi === "Created") return "DI-COPY/PINDAH MASUK";
     if (aksi === "Deleted") return "DIHAPUS";
@@ -126,63 +114,8 @@ function logLogAktivitasTipe(aksi) {
     return aksi;
 }
 
-// 4. ENDPOINT GET: Mengambil daftar komputer dari database untuk halaman utama
-app.get('/api/get-hardware-data', (req, res) => {
-    // Ambil semua daftar komputer karyawan yang terdaftar di database
-    const queryAmbilHW = "SELECT * FROM komputer_karyawan";
-    
-    db.query(queryAmbilHW, (err, rows) => {
-        if (err) {
-            return res.json(Object.values(daftarAgenKomputer));
-        }
-
-        // Map data database untuk dicocokkan dengan status real-time di RAM server
-        const hasilSistem = rows.map(row => {
-            const isOnline = daftarAgenKomputer[row.mac];
-            return {
-                nama: row.nama_karyawan,
-                nama_karyawan: row.nama_karyawan,
-                divisi: row.divisi,
-                mac: row.mac,
-                ip: row.ip_address,
-                cpu: row.cpu_name,
-                // Status otomatis ONLINE jika ram mendeteksi ping aktif, jika tidak maka OFFLINE
-                status: isOnline ? "ONLINE" : "OFFLINE", 
-                waktu_update: isOnline ? isOnline.waktu_update : "-"
-            };
-        });
-
-        res.json(hasilSistem);
-    });
-});
-
-// 5. ENDPOINT GET: MENGAMBIL LOG AKTIVITAS DARI DATABASE (URUTAN KRONOLOGIS DARI AWAL KEBANAH)
-app.get('/api/get-activity-logs', (req, res) => {
-    // Kita ubah ORDER BY menjadi ASC biar aksi pertama ada di paling atas, dan aksi terbaru makin ke bawah
-    const querySelect = "SELECT * FROM log_pantau_karyawan ORDER BY waktu_kejadian ASC";
-    
-    db.query(querySelect, (err, rows) => {
-        if (err) {
-            return res.json([]);
-        }
-        
-        // Ubah format data dari database agar sesuai dengan penamaan di index.html lu
-        const formatLogs = rows.map(row => ({
-            mac: row.mac_address,
-            tipe_aksi: row.tipe_aksi,
-            nama_file: row.nama_file,
-            path_file: `IP: ${row.ip_address} | Terpantau otomatis di sistem database`,
-            waktu: new Date(row.waktu_kejadian).toLocaleTimeString()
-        }));
-
-        res.json(formatLogs);
-    });
-});
-const fs = require('fs');
-const path = require('path');
-
 // =========================================================================
-// ENDPOINT POST: Mode Full MySQL + Struktur Folder per User (ROUTINE / ALERT)
+// 3. ENDPOINT POST: SIMPAN SCREENSHOT KE FOLDER & MYSQL
 // =========================================================================
 app.post('/api/report-screenshot', (req, res) => {
     const { mac, tipe_pemicu, gambar_base64 } = req.body;
@@ -193,15 +126,11 @@ app.post('/api/report-screenshot', (req, res) => {
 
     try {
         const timestamp = Math.floor(Date.now() / 1000);
-        
-        // Ambil nama karyawan dari memori sementara berdasarkan MAC
         const infoKaryawan = daftarAgenKomputer[mac] || { nama_karyawan: "Karyawan_Unknown" };
-        const namaUser = infoKaryawan.nama_karyawan.replace(/\s+/g, '_'); // Ganti spasi jadi underscore
+        const namaUser = infoKaryawan.nama_karyawan.replace(/\s+/g, '_'); 
         const kategoriAksi = tipe_pemicu === "ALERT" ? "ALERT" : "ROUTINE";
 
         const namaFileGambar = `ss_${timestamp}.jpg`;
-
-        // STRUKTUR FOLDER: public/screenshots/Tirta_Anggara/ALERT atau ROUTINE
         const folderTujuan = path.join(__dirname, 'public', 'screenshots', namaUser, kategoriAksi);
         
         if (!fs.existsSync(folderTujuan)) {
@@ -211,21 +140,14 @@ app.post('/api/report-screenshot', (req, res) => {
         const pathLengkapGambar = path.join(folderTujuan, namaFileGambar);
         const dataGambarMurni = gambar_base64.replace(/^data:image\/\w+;base64,/, "");
         
-        // Tetap tulis ke folder buat review perbandingan
         fs.writeFileSync(pathLengkapGambar, dataGambarMurni, 'base64');
-
-        // Basa data Base64 menjadi Buffer biner untuk MySQL LONGBLOB
         const bufferGambar = Buffer.from(dataGambarMurni, 'base64');
 
-        // MASUKKAN SELURUH FISIK GAMBAR KE MYSQL!
         const jalurSimpanDatabase = `${namaUser}/${kategoriAksi}/${namaFileGambar}`;
         const querySimpanSS = "INSERT INTO log_screenshot (mac_address, nama_file_gambar, tipe_pemicu, gambar_blob) VALUES (?, ?, ?, ?)";
         
         db.query(querySimpanSS, [mac, jalurSimpanDatabase, kategoriAksi, bufferGambar], (err, result) => {
-            if (err) {
-                console.error('[DATABASE EROR] MySQL megap-megap masukin gambar:', err.message);
-                return res.status(500).json({ status: "GAGAL" });
-            }
+            if (err) return res.status(500).json({ status: "GAGAL" });
             console.log(`[DATABASE] Screenshot saved to MySQL Blob (${kategoriAksi}).`);
             return res.json({ status: "OK" });
         });
@@ -237,19 +159,126 @@ app.post('/api/report-screenshot', (req, res) => {
 });
 
 // =========================================================================
-// ENDPOINT GET: Membongkar Gambar Langsung dari Blob MySQL (SINKRON DASHBOARD)
+// 4. ENDPOINT GET: AMBIL DAFTAR HARDWARE UNTUK DASHBOARD UTAMA
+// =========================================================================
+app.get('/api/get-hardware-data', (req, res) => {
+    const queryAmbilHW = "SELECT * FROM komputer_karyawan";
+    
+    db.query(queryAmbilHW, (err, rows) => {
+        if (err) return res.json(Object.values(daftarAgenKomputer));
+
+        const hasilSistem = rows.map(row => {
+            const isOnline = daftarAgenKomputer[row.mac];
+            return {
+                nama: row.nama_karyawan,
+                nama_karyawan: row.nama_karyawan,
+                divisi: row.divisi,
+                mac: row.mac,
+                ip: row.ip_address,
+                cpu: row.cpu_name,
+                status: isOnline ? "ONLINE" : "OFFLINE", 
+                waktu_update: isOnline ? isOnline.waktu_update : "-"
+            };
+        });
+
+        res.json(hasilSistem);
+    });
+});
+
+// =========================================================================
+// [MESIN BARU] 5. ENDPOINT GET: AMBIL LOG FILE + FILTER AKSI & TANGGAL
+// =========================================================================
+app.get('/api/get-activity-logs', (req, res) => {
+    const mac = req.query.mac;
+    if (!mac) return res.json([]);
+
+    const limit = parseInt(req.query.limit) || 100; // Default tampil 100 baris
+    const offset = parseInt(req.query.offset) || 0;
+    
+    const tglAwal = req.query.tgl_awal;
+    const tglAkhir = req.query.tgl_akhir;
+    const tipeAksi = req.query.tipe_aksi; // Menangkap request filter (Hapus/Edit/Baru)
+
+    let queryParams = [mac];
+    let filterSQL = "WHERE mac_address = ?";
+
+    if (tglAwal && tglAkhir) {
+        filterSQL += " AND DATE(waktu_kejadian) BETWEEN ? AND ?";
+        queryParams.push(tglAwal, tglAkhir);
+    }
+    
+    // Kalau web minta filter Hapus/Baru/Edit, tambahkan ke SQL
+    if (tipeAksi) {
+        filterSQL += " AND tipe_aksi LIKE ?";
+        queryParams.push(`%${tipeAksi}%`);
+    }
+
+    const querySelect = `
+        SELECT * FROM log_pantau_karyawan 
+        ${filterSQL} 
+        ORDER BY waktu_kejadian DESC 
+        LIMIT ? OFFSET ?
+    `;
+    
+    queryParams.push(limit, offset);
+
+    db.query(querySelect, queryParams, (err, rows) => {
+        if (err) return res.json([]);
+        
+        const formatLogs = rows.map(row => ({
+            mac: row.mac_address,
+            tipe_aksi: row.tipe_aksi,
+            nama_file: row.nama_file,
+            path_file: `IP: ${row.ip_address} | Terpantau otomatis di sistem database`,
+            waktu: new Date(row.waktu_kejadian).toLocaleString('id-ID')
+        }));
+
+        res.json(formatLogs);
+    });
+});
+
+// =========================================================================
+// [MESIN BARU] 6. ENDPOINT GET: AMBIL SCREENSHOT + FILTER ALERT & TANGGAL
 // =========================================================================
 app.get('/api/get-screenshot-logs', (req, res) => {
     const mac = req.query.mac;
     if (!mac) return res.json([]);
 
-    // Tarik kolom gambar_blob langsung dari MySQL
-    const queryAmbilSS = "SELECT id, tipe_pemicu, waktu_kejadian, gambar_blob FROM log_screenshot WHERE mac_address = ? ORDER BY waktu_kejadian DESC";
-    db.query(queryAmbilSS, [mac], (err, rows) => {
+    const limit = parseInt(req.query.limit) || 15; 
+    const offset = parseInt(req.query.offset) || 0;             
+    
+    const tglAwal = req.query.tgl_awal;   
+    const tglAkhir = req.query.tgl_akhir; 
+    const tipePemicu = req.query.tipe_pemicu; // Menangkap filter khusus "ALERT"
+
+    let queryParams = [mac];
+    let filterSQL = "WHERE mac_address = ?";
+
+    if (tglAwal && tglAkhir) {
+        filterSQL += " AND DATE(waktu_kejadian) BETWEEN ? AND ?";
+        queryParams.push(tglAwal, tglAkhir);
+    }
+    
+    // Kalau web minta cuma gambar pas file dihapus (ALERT)
+    if (tipePemicu) {
+        filterSQL += " AND tipe_pemicu = ?";
+        queryParams.push(tipePemicu);
+    }
+
+    const queryAmbilSS = `
+        SELECT id, tipe_pemicu, waktu_kejadian, gambar_blob 
+        FROM log_screenshot 
+        ${filterSQL} 
+        ORDER BY waktu_kejadian DESC 
+        LIMIT ? OFFSET ?
+    `;
+    
+    queryParams.push(limit, offset);
+
+    db.query(queryAmbilSS, queryParams, (err, rows) => {
         if (err) return res.json([]);
 
         const formatSS = rows.map(row => {
-            // Ubah kembali data biner LONGBLOB dari MySQL menjadi string gambar yang bisa tampil di HTML
             let stringBase64 = "";
             if (row.gambar_blob) {
                 stringBase64 = `data:image/jpeg;base64,${Buffer.from(row.gambar_blob).toString('base64')}`;
@@ -257,10 +286,10 @@ app.get('/api/get-screenshot-logs', (req, res) => {
 
             return {
                 id: row.id,
-                tipe_pemicu: row.tipe_pemicu, // <-- DISINKRONKAN
+                tipe_pemicu: row.tipe_pemicu,
                 tipe: row.tipe_pemicu,
-                waktu: row.waktu_kejadian,   // <-- BIARKAN FORMAT ASLI BIAR DI-PARSE DI FRONTEND
-                gambar_url: stringBase64,     // <-- DISINKRONKAN
+                waktu: row.waktu_kejadian,
+                gambar_url: stringBase64,
                 url_gambar: stringBase64
             };
         });

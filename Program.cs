@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -26,11 +27,11 @@ class Program
     private static string _fileTerakhirTerdeteksi = "";
     private static DateTime _waktuTerakhirTerdeteksi = DateTime.MinValue;
 
-    // INDIKATOR ANTI-OVERLAPPING TIMER
     private static bool _sedangMemprosesGambar = false; 
-
-    // [FITUR NOMOR 1] : DEKLARASI JAM WEKER / TIMER OTOMATIS
     private static System.Timers.Timer? _timerScreenshot; 
+
+    // WADAH CCTV GABUNGAN (Menampung Lapis 1 & Lapis 2 biar gak dihapus Windows)
+    private static List<FileSystemWatcher> _pasukanCCTV = new List<FileSystemWatcher>();
 
     static async Task Main(string[] args)
     {
@@ -45,32 +46,70 @@ class Program
         await KirimIdentitasKeServer(ipAddress, cpuName);
 
         // =========================================================================
-        // MENGINTAI SELURUH DRIVE C SECARA KESELURUHAN (FILTERED)
+        // LAPIS 1: MENGINTAI FOLDER VIP (100% SENSOR AKTIF)
         // =========================================================================
-        string folderPantau = @"C:\"; 
+        string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-        FileSystemWatcher pengintai = new FileSystemWatcher();
-        pengintai.Path = folderPantau;
-        pengintai.Filter = "*.*"; 
-        pengintai.IncludeSubdirectories = true; 
+        string[] folderVIP = {
+            Path.Combine(userProfile, "Desktop"),
+            Path.Combine(userProfile, "Documents"),
+            Path.Combine(userProfile, "Downloads"),
+            Path.Combine(userProfile, "Pictures"),
+            Path.Combine(userProfile, "Videos"),
+            Path.Combine(userProfile, "Music")
+        };
 
-        pengintai.Created += OnChanged;
-        pengintai.Deleted += OnChanged;
-        pengintai.Changed += OnChanged;
-        pengintai.Renamed += OnRenamed; 
-        pengintai.EnableRaisingEvents = true;
+        Console.WriteLine("\n[SISTEM] Membangun pos pengintai Lapis 1 (VIP Folders)...");
+
+        foreach (string folder in folderVIP)
+        {
+            if (Directory.Exists(folder))
+            {
+                FileSystemWatcher watcherVIP = new FileSystemWatcher();
+                watcherVIP.Path = folder;
+                watcherVIP.Filter = "*.*"; 
+                watcherVIP.IncludeSubdirectories = true; 
+
+                // Sensor Lapis 1: FULL ACTION (Boleh pantau Edit/Changed)
+                watcherVIP.Created += OnChanged;
+                watcherVIP.Deleted += OnChanged;
+                watcherVIP.Changed += OnChanged;
+                watcherVIP.Renamed += OnRenamed; 
+                watcherVIP.EnableRaisingEvents = true;
+
+                _pasukanCCTV.Add(watcherVIP); 
+                Console.WriteLine($"[CCTV LAPIS 1 AKTIF] -> {folder}");
+            }
+        }
 
         // =========================================================================
-        // [PERBAIKAN PERFORMA] : LONGGARKAN TIMER SCREENSHOT RUTIN
-        // Keterangan: Ubah dari 10000 (10 detik) menjadi 60000 (1 menit) biar HDD adem
+        // LAPIS 2: PENGINTAI SAPUJAGAT C:\ (SENSOR DIBATASI / HEMAT ENERGI)
         // =========================================================================
+        Console.WriteLine("\n[SISTEM] Membangun pos pengintai Lapis 2 (Sapujagat C:\\)...");
+        
+        FileSystemWatcher watcherSapujagat = new FileSystemWatcher();
+        watcherSapujagat.Path = @"C:\";
+        watcherSapujagat.Filter = "*.*"; 
+        watcherSapujagat.IncludeSubdirectories = true; 
+
+        // Sensor Lapis 2: HANYA PANTAU BARU, HAPUS & RENAME! 
+        // (JANGAN MASUKIN EVENT .Changed DISINI BIAR LAPTOP KAGA MELEDAK!)
+        watcherSapujagat.Created += OnChanged;
+        watcherSapujagat.Deleted += OnChanged;
+        watcherSapujagat.Renamed += OnRenamed; 
+        watcherSapujagat.EnableRaisingEvents = true;
+
+        _pasukanCCTV.Add(watcherSapujagat);
+        Console.WriteLine($"[CCTV LAPIS 2 AKTIF] -> Jaring pengaman seluruh Drive C terpasang!");
+        // =========================================================================
+
         _timerScreenshot = new System.Timers.Timer(60000); 
-        _timerScreenshot.Elapsed += OnTimerScreenshot;
+        _timerScreenshot.Elapsed += OnTimerJepretOtomatis;
         _timerScreenshot.AutoReset = true;
         _timerScreenshot.Enabled = true;
 
-        Console.WriteLine($"\n[CCTV FILE AKTIF] Sedang mengintai SELURUH Drive C:");
-        Console.WriteLine("[CCTV GAMBAR AKTIF] Mengambil screenshot otomatis tiap 10 detik (Max 200KB)...");
+        Console.WriteLine($"\n[CCTV FILE AKTIF] Sedang mengintai 2 Lapis Keamanan.");
+        Console.WriteLine("[CCTV GAMBAR AKTIF] Mengambil screenshot otomatis tiap 1 menit...");
         Console.WriteLine("Tekan ENTER di CMD ini jika ingin mematikan Agen.\n");
         
         Console.ReadLine();
@@ -85,22 +124,21 @@ class Program
     private static async void OnChanged(object source, FileSystemEventArgs e)
     {
         // =========================================================================
-        // EMERGENSI FILTER: BLOKIR XAMPP, PROYEK LU, DIAGNOSIS, DAN VIRTUAL MEMORY
+        // EMERGENSI FILTER: Anti Infinite Loop
         // =========================================================================
         if (string.IsNullOrEmpty(e.FullPath) || 
             e.FullPath.IndexOf("xampp", StringComparison.OrdinalIgnoreCase) >= 0 ||
             e.FullPath.IndexOf("uji coba", StringComparison.OrdinalIgnoreCase) >= 0 || 
+            e.FullPath.IndexOf("dlp-karyawan", StringComparison.OrdinalIgnoreCase) >= 0 || 
+            e.FullPath.IndexOf("public", StringComparison.OrdinalIgnoreCase) >= 0 || 
             e.FullPath.IndexOf("programdata", StringComparison.OrdinalIgnoreCase) >= 0 || 
-            e.FullPath.IndexOf("pagefile.sys", StringComparison.OrdinalIgnoreCase) >= 0 || // <--- BLOKIR RAM SEMU WINDOWS DI SINI
+            e.FullPath.IndexOf("pagefile.sys", StringComparison.OrdinalIgnoreCase) >= 0 || 
             e.FullPath.IndexOf("ib_logfile", StringComparison.OrdinalIgnoreCase) >= 0 ||
             e.FullPath.IndexOf("ibdata", StringComparison.OrdinalIgnoreCase) >= 0)
         {
-            return; // Keluar instan!
+            return; 
         }
 
-        // =========================================================================
-        // ULTRA FILTER ANTI-SPAM SISTEM (VERSI BAJA)
-        // =========================================================================
         string pathMentah = e.FullPath.ToLower();
         string namaMentah = (e.Name ?? "").ToLower();
 
@@ -118,7 +156,8 @@ class Program
         }
 
         if (namaMentah.StartsWith("~$") || 
-            namaMentah.EndsWith(".tmp") || 
+            namaMentah.EndsWith(".tmp") ||
+            namaMentah.EndsWith(".pfd") || 
             namaMentah.EndsWith(".log") || 
             namaMentah.EndsWith(".ini") || 
             namaMentah.EndsWith(".db") ||  
@@ -129,9 +168,6 @@ class Program
             return; 
         }
 
-        // =========================================================================
-        // PROSES EKSEKUSI LOG REAL (HANYA DOKUMEN ASLI USER)
-        // =========================================================================
         string tipeAksi = e.ChangeType.ToString();
 
         if (e.ChangeType == WatcherChangeTypes.Changed)
@@ -147,7 +183,6 @@ class Program
         Console.WriteLine($"[TERDETEKSI] File {tipeAksi}: {e.Name}");
         await KirimLogKeServer(tipeAksi, e.Name ?? "Unknown_File", e.FullPath);
 
-        // INTERUPSI SNAPSHOT DARURAT JIKA USER ADALAH PENGHAPUS DATA
         if (tipeAksi == "Deleted")
         {
             Console.WriteLine("[ALERT SYSTEM] File Dihapus! Memicu snapshot darurat...");
@@ -158,17 +193,19 @@ class Program
     private static async void OnRenamed(object source, RenamedEventArgs e)
     {
         // =========================================================================
-        // EMERGENSI FILTER (ON-RENAMED): BLOKIR TOTAL AGAR TIDAK BOCOR LOG SISTEM
+        // EMERGENSI FILTER: Anti Infinite Loop
         // =========================================================================
         if (string.IsNullOrEmpty(e.FullPath) || 
             e.FullPath.IndexOf("xampp", StringComparison.OrdinalIgnoreCase) >= 0 ||
             e.FullPath.IndexOf("uji coba", StringComparison.OrdinalIgnoreCase) >= 0 || 
+            e.FullPath.IndexOf("dlp-karyawan", StringComparison.OrdinalIgnoreCase) >= 0 || 
+            e.FullPath.IndexOf("public", StringComparison.OrdinalIgnoreCase) >= 0 || 
             e.FullPath.IndexOf("programdata", StringComparison.OrdinalIgnoreCase) >= 0 || 
-            e.FullPath.IndexOf("pagefile.sys", StringComparison.OrdinalIgnoreCase) >= 0 || // <--- SUDAH TERPASANG DI SINI, BRO!
+            e.FullPath.IndexOf("pagefile.sys", StringComparison.OrdinalIgnoreCase) >= 0 || 
             e.FullPath.IndexOf("ib_logfile", StringComparison.OrdinalIgnoreCase) >= 0 ||
             e.FullPath.IndexOf("ibdata", StringComparison.OrdinalIgnoreCase) >= 0)
         {
-            return; // Jika cocok, langsung batalkan proses dan keluar!
+            return; 
         }
 
         string pathMentah = e.FullPath.ToLower();
@@ -189,9 +226,6 @@ class Program
         await KirimLogKeServer("EDIT", e.Name ?? "Unknown_File", e.FullPath);
     }
 
-    // =========================================================================
-    // [FITUR NOMOR 4] : MEKANISME KAMERA CCTV + MAXIMUM SHARPNESS (MAX 200KB)
-    // =========================================================================
     private static async Task AmbilDanKirimScreenshot(string pemicu)
     {
         _sedangMemprosesGambar = true; 
@@ -209,10 +243,7 @@ class Program
 
                 ImageCodecInfo jpegCodec = ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
                 EncoderParameters parameterKompresi = new EncoderParameters(1);
-                // =========================================================================
-                // [PERBAIKAN PERFORMA] : TURUNKAN KUALITAS GAMBAR (BIAR UKURAN KURUZZ)
-                // Keterangan: Ubah ke 35L agar file hanya ~40KB, RAM & bandwidth super irit!
-                // =========================================================================
+                
                 parameterKompresi.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 35L); 
 
                 using (MemoryStream ms = new MemoryStream())
@@ -246,9 +277,6 @@ class Program
         }
     }
 
-    // =========================================================================
-    // [FITUR NOMOR 5] : JEMBATAN PENGIRIM IDENTITAS DARI AGENT LAMA
-    // =========================================================================
     private static async Task KirimLogKeServer(string aksi, string namaFile, string pathFile)
     {
         try
