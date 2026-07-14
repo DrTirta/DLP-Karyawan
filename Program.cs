@@ -31,9 +31,16 @@ public class ConfigKaryawan
 public static class TrackerAgent
 {
     private static readonly HttpClient client = new HttpClient();
-    private static readonly string ServerUrl = "http://127.0.0.1:3535/api/report-hardware";
-    private static readonly string ActivityUrl = "http://127.0.0.1:3535/api/report-activity";
-    private static readonly string ScreenshotUrl = "http://127.0.0.1:3535/api/report-screenshot"; 
+    private static readonly string ServerUrl = "http://10.62.8.173:3535/api/report-hardware";
+    private static readonly string ActivityUrl = "http://10.62.8.173:3535/api/report-activity";
+    private static readonly string ScreenshotUrl = "http://10.62.8.173:3535/api/report-screenshot";
+    // =========================================================================
+    // VARIABEL AUTO-UPDATE
+    // =========================================================================
+    private const string APP_VERSION = "1.0.0"; 
+    
+    // Pastikan pakai 'e' di kata Check
+    private static readonly string UpdateCheckUrl = "http://10.62.8.173:3535/api/check-update"; 
     
     public static ConfigKaryawan DataConfig = new ConfigKaryawan();
     public static string MacAddressPC = "";
@@ -96,6 +103,22 @@ public static class TrackerAgent
         _timerScreenshot.Elapsed += OnTimerJepretOtomatis;
         _timerScreenshot.AutoReset = true;
         _timerScreenshot.Enabled = true;
+
+        // =================================================================
+        // [FITUR BARU] TIMER HEARTBEAT: Lapor status ONLINE tiap 30 detik
+        // =================================================================
+        System.Timers.Timer timerHeartbeat = new System.Timers.Timer(30000);
+        timerHeartbeat.Elapsed += async (s, ev) => await KirimIdentitasKeServer();
+        timerHeartbeat.AutoReset = true;
+        timerHeartbeat.Enabled = true;
+
+        // =================================================================
+        // [FITUR BARU] TIMER UPDATE: Cek versi baru tiap 1 Menit (60000 ms)
+        // =================================================================
+        System.Timers.Timer timerUpdate = new System.Timers.Timer(60000); 
+        timerUpdate.Elapsed += async (s, ev) => await CekUpdateOtomatis();
+        timerUpdate.AutoReset = true;
+        timerUpdate.Enabled = true;
     }
 
     private static async void OnTimerJepretOtomatis(object? sender, ElapsedEventArgs e)
@@ -256,6 +279,62 @@ public static class TrackerAgent
         } catch {}
     }
 
+    // =========================================================================
+    // FUNGSI AUTO-UPDATE SILUMAN
+    // =========================================================================
+    private static async Task CekUpdateOtomatis()
+    {
+        try {
+            string response = await client.GetStringAsync(UpdateCheckUrl);
+            var json = JsonDocument.Parse(response);
+            string serverVersion = json.RootElement.GetProperty("version").GetString() ?? "1.0.0";
+            string downloadUrl = json.RootElement.GetProperty("download_url").GetString() ?? "";
+
+            // Kalau versi di server lebih baru dari versi lokal, jalankan update!
+            if (serverVersion != APP_VERSION && !string.IsNullOrEmpty(downloadUrl)) {
+                await ProsesUpdateNinja(downloadUrl);
+            }
+        } catch {}
+    }
+
+    private static async Task ProsesUpdateNinja(string urlFileBaru)
+    {
+        try {
+            string exeLama = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "ujicoba.exe";
+            string exeBaru = exeLama + ".new";
+            string batFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "updater_ninja.bat");
+
+            // 1. Download file .exe versi baru diam-diam
+            byte[] fileBytes = await client.GetByteArrayAsync(urlFileBaru);
+            File.WriteAllBytes(exeBaru, fileBytes);
+
+            // 2. Buat script BATCH untuk numpuk file lama
+            string namaExe = Path.GetFileName(exeLama);
+            string batCode = $@"
+@echo off
+timeout /t 3 /nobreak > NUL
+del ""{exeLama}""
+ren ""{exeBaru}"" ""{namaExe}""
+start """" ""{exeLama}""
+del ""%~f0""
+";
+            File.WriteAllText(batFile, batCode);
+
+            // 3. Eksekusi script BATCH di background tanpa layar CMD
+            var info = new System.Diagnostics.ProcessStartInfo(batFile) {
+                WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+                CreateNoWindow = true
+            };
+            System.Diagnostics.Process.Start(info);
+
+            // 4. Matikan aplikasi ini sekarang biar filenya nggak ke-lock dan bisa dihapus
+            Environment.Exit(0);
+        } catch {}
+    }
+
+    // =========================================================================
+    // KODE BAWAAN LU YANG ASLI (JANGAN DIHAPUS)
+    // =========================================================================
     private static string AmbilMacAddress() {
         try { var interfaceAktif = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(i => i.OperationalStatus == OperationalStatus.Up); return interfaceAktif != null ? string.Join(":", interfaceAktif.GetPhysicalAddress().GetAddressBytes().Select(b => b.ToString("X2"))) : "00:00:00:00:00:00"; } catch { return "ERROR_MAC"; }
     }

@@ -317,8 +317,27 @@ app.get('/api/get-screenshot-logs', (req, res) => {
     });
 });
 
-app.listen(PORT, () => {
+// =========================================================================
+// [FITUR BARU] : SISTEM AUTO UPDATE UNTUK AGEN C#
+// =========================================================================
+const APP_VERSION = "1.0.0"; // Ubah angka ini kalau lu naruh update file .exe baru
+
+// Daftarkan folder 'update' (Lu harus bikin folder bernama 'update' di sebelah server.js)
+app.use('/update', express.static(path.join(__dirname, 'update')));
+
+app.get('/api/check-update', (req, res) => {
+    res.json({
+        version: APP_VERSION,
+        download_url: `http://${req.hostname}:${PORT}/update/ujicoba.exe` // Sesuaikan nama .exe lu
+    });
+});
+
+// =========================================================================
+// JALANKAN SERVER (HARUS DI PALING BAWAH FILE)
+// =========================================================================
+// Gw tambahin '0.0.0.0' biar server lu siap nerima koneksi dari jaringan LAN/Wi-Fi
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`==================================================`);
-    console.log(` SERVER DATABASE CONNECTED: http://localhost:${PORT} `);
+    console.log(` SERVER DATABASE CONNECTED: Port ${PORT} `);
     console.log(`==================================================`);
 });
