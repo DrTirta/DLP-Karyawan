@@ -12,54 +12,56 @@ using System.Threading.Tasks;
 using System.Timers; 
 using System.Drawing; 
 using System.Drawing.Imaging; 
+using System.Windows.Forms;
+using System.Runtime.InteropServices;
 
-class Program
+// =========================================================================
+// KELAS KONFIGURASI IDENTITAS
+// =========================================================================
+public class ConfigKaryawan
+{
+    public string NamaKaryawan { get; set; } = "Karyawan Default";
+    public string Divisi { get; set; } = "Umum";
+    public string JenisPerangkat { get; set; } = "Komputer";
+}
+
+// =========================================================================
+// KELAS MESIN UTAMA (CCTV & NETWORK) - BERISI KODE ASLI LU
+// =========================================================================
+public static class TrackerAgent
 {
     private static readonly HttpClient client = new HttpClient();
     private static readonly string ServerUrl = "http://127.0.0.1:3535/api/report-hardware";
     private static readonly string ActivityUrl = "http://127.0.0.1:3535/api/report-activity";
     private static readonly string ScreenshotUrl = "http://127.0.0.1:3535/api/report-screenshot"; 
     
-    private static readonly string NamaKaryawan = "Tirta Anggara";
-    private static readonly string DivisiKaryawan = "IT Security";
-    private static string MacAddressPC = "";
+    public static ConfigKaryawan DataConfig = new ConfigKaryawan();
+    public static string MacAddressPC = "";
 
     private static string _fileTerakhirTerdeteksi = "";
     private static DateTime _waktuTerakhirTerdeteksi = DateTime.MinValue;
-
     private static bool _sedangMemprosesGambar = false; 
     private static System.Timers.Timer? _timerScreenshot; 
-
-    // WADAH CCTV GABUNGAN (Menampung Lapis 1 & Lapis 2 biar gak dihapus Windows)
     private static List<FileSystemWatcher> _pasukanCCTV = new List<FileSystemWatcher>();
+    private static bool _sudahJalan = false;
 
-    static async Task Main(string[] args)
+    public static async Task MulaiSistemCCTV()
     {
-        Console.WriteLine("==================================================");
-        Console.WriteLine("     PROYEK UJI COBA: AGEN AUTO SCREENSHOT ACTIVE ");
-        Console.WriteLine("==================================================");
+        if (_sudahJalan) return;
+        _sudahJalan = true;
 
         MacAddressPC = AmbilMacAddress();
-        string ipAddress = AmbilLocalIP();
-        string cpuName = AmbilCpuNama();
+        
+        // Kirim identitas pertama kali saat aplikasi nyala
+        await KirimIdentitasKeServer();
 
-        await KirimIdentitasKeServer(ipAddress, cpuName);
-
-        // =========================================================================
-        // LAPIS 1: MENGINTAI FOLDER VIP (100% SENSOR AKTIF)
-        // =========================================================================
+        // --- LAPIS 1: VIP FOLDERS ---
         string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
         string[] folderVIP = {
-            Path.Combine(userProfile, "Desktop"),
-            Path.Combine(userProfile, "Documents"),
-            Path.Combine(userProfile, "Downloads"),
-            Path.Combine(userProfile, "Pictures"),
-            Path.Combine(userProfile, "Videos"),
-            Path.Combine(userProfile, "Music")
+            Path.Combine(userProfile, "Desktop"), Path.Combine(userProfile, "Documents"),
+            Path.Combine(userProfile, "Downloads"), Path.Combine(userProfile, "Pictures"),
+            Path.Combine(userProfile, "Videos"), Path.Combine(userProfile, "Music")
         };
-
-        Console.WriteLine("\n[SISTEM] Membangun pos pengintai Lapis 1 (VIP Folders)...");
 
         foreach (string folder in folderVIP)
         {
@@ -69,50 +71,31 @@ class Program
                 watcherVIP.Path = folder;
                 watcherVIP.Filter = "*.*"; 
                 watcherVIP.IncludeSubdirectories = true; 
-
-                // Sensor Lapis 1: FULL ACTION (Boleh pantau Edit/Changed)
                 watcherVIP.Created += OnChanged;
                 watcherVIP.Deleted += OnChanged;
                 watcherVIP.Changed += OnChanged;
                 watcherVIP.Renamed += OnRenamed; 
                 watcherVIP.EnableRaisingEvents = true;
-
                 _pasukanCCTV.Add(watcherVIP); 
-                Console.WriteLine($"[CCTV LAPIS 1 AKTIF] -> {folder}");
             }
         }
 
-        // =========================================================================
-        // LAPIS 2: PENGINTAI SAPUJAGAT C:\ (SENSOR DIBATASI / HEMAT ENERGI)
-        // =========================================================================
-        Console.WriteLine("\n[SISTEM] Membangun pos pengintai Lapis 2 (Sapujagat C:\\)...");
-        
+        // --- LAPIS 2: SAPUJAGAT C:\ ---
         FileSystemWatcher watcherSapujagat = new FileSystemWatcher();
         watcherSapujagat.Path = @"C:\";
         watcherSapujagat.Filter = "*.*"; 
         watcherSapujagat.IncludeSubdirectories = true; 
-
-        // Sensor Lapis 2: HANYA PANTAU BARU, HAPUS & RENAME! 
-        // (JANGAN MASUKIN EVENT .Changed DISINI BIAR LAPTOP KAGA MELEDAK!)
         watcherSapujagat.Created += OnChanged;
         watcherSapujagat.Deleted += OnChanged;
         watcherSapujagat.Renamed += OnRenamed; 
         watcherSapujagat.EnableRaisingEvents = true;
-
         _pasukanCCTV.Add(watcherSapujagat);
-        Console.WriteLine($"[CCTV LAPIS 2 AKTIF] -> Jaring pengaman seluruh Drive C terpasang!");
-        // =========================================================================
 
+        // --- TIMER SCREENSHOT ROUTINE ---
         _timerScreenshot = new System.Timers.Timer(60000); 
         _timerScreenshot.Elapsed += OnTimerJepretOtomatis;
         _timerScreenshot.AutoReset = true;
         _timerScreenshot.Enabled = true;
-
-        Console.WriteLine($"\n[CCTV FILE AKTIF] Sedang mengintai 2 Lapis Keamanan.");
-        Console.WriteLine("[CCTV GAMBAR AKTIF] Mengambil screenshot otomatis tiap 1 menit...");
-        Console.WriteLine("Tekan ENTER di CMD ini jika ingin mematikan Agen.\n");
-        
-        Console.ReadLine();
     }
 
     private static async void OnTimerJepretOtomatis(object? sender, ElapsedEventArgs e)
@@ -123,10 +106,9 @@ class Program
 
     private static async void OnChanged(object source, FileSystemEventArgs e)
     {
-        // =========================================================================
-        // EMERGENSI FILTER: Anti Infinite Loop
-        // =========================================================================
         if (string.IsNullOrEmpty(e.FullPath) || 
+            e.FullPath.IndexOf("$recycle.bin", StringComparison.OrdinalIgnoreCase) >= 0 || 
+            e.FullPath.IndexOf("recycle.bin", StringComparison.OrdinalIgnoreCase) >= 0 ||  
             e.FullPath.IndexOf("xampp", StringComparison.OrdinalIgnoreCase) >= 0 ||
             e.FullPath.IndexOf("uji coba", StringComparison.OrdinalIgnoreCase) >= 0 || 
             e.FullPath.IndexOf("dlp-karyawan", StringComparison.OrdinalIgnoreCase) >= 0 || 
@@ -135,38 +117,24 @@ class Program
             e.FullPath.IndexOf("pagefile.sys", StringComparison.OrdinalIgnoreCase) >= 0 || 
             e.FullPath.IndexOf("ib_logfile", StringComparison.OrdinalIgnoreCase) >= 0 ||
             e.FullPath.IndexOf("ibdata", StringComparison.OrdinalIgnoreCase) >= 0)
-        {
-            return; 
-        }
+        { return; }
 
         string pathMentah = e.FullPath.ToLower();
         string namaMentah = (e.Name ?? "").ToLower();
 
-        if (pathMentah.Contains(@"c:\windows") || 
-            pathMentah.Contains(@"c:\program files") || 
-            pathMentah.Contains(@"c:\program data") || 
-            pathMentah.Contains(@"\appdata\") ||
-            pathMentah.Contains(@"\application data\") ||
-            pathMentah.Contains(@"\local settings\") ||
-            pathMentah.Contains(@"\onedrive\") || 
-            pathMentah.Contains(@"microsoft\winsxs") ||
+        if (pathMentah.Contains(@"c:\windows") || pathMentah.Contains(@"c:\program files") || 
+            pathMentah.Contains(@"c:\program data") || pathMentah.Contains(@"\appdata\") ||
+            pathMentah.Contains(@"\application data\") || pathMentah.Contains(@"\local settings\") ||
+            pathMentah.Contains(@"\onedrive\") || pathMentah.Contains(@"microsoft\winsxs") ||
             pathMentah.Contains(@"\search\data\"))
-        {
-            return; 
-        }
+        { return; }
 
-        if (namaMentah.StartsWith("~$") || 
-            namaMentah.EndsWith(".tmp") ||
-            namaMentah.EndsWith(".pfd") || 
-            namaMentah.EndsWith(".log") || 
-            namaMentah.EndsWith(".ini") || 
-            namaMentah.EndsWith(".db") ||  
-            namaMentah.EndsWith(".crdownload") || 
-            namaMentah.Contains("~wrd") || 
+        if (namaMentah.StartsWith("~$") || namaMentah.EndsWith(".tmp") ||
+            namaMentah.EndsWith(".pfd") || namaMentah.EndsWith(".log") || 
+            namaMentah.EndsWith(".ini") || namaMentah.EndsWith(".db") ||  
+            namaMentah.EndsWith(".crdownload") || namaMentah.Contains("~wrd") || 
             namaMentah.Contains("~wrl"))
-        {
-            return; 
-        }
+        { return; }
 
         string tipeAksi = e.ChangeType.ToString();
 
@@ -180,22 +148,19 @@ class Program
             _waktuTerakhirTerdeteksi = DateTime.Now;
         }
 
-        Console.WriteLine($"[TERDETEKSI] File {tipeAksi}: {e.Name}");
         await KirimLogKeServer(tipeAksi, e.Name ?? "Unknown_File", e.FullPath);
 
         if (tipeAksi == "Deleted")
         {
-            Console.WriteLine("[ALERT SYSTEM] File Dihapus! Memicu snapshot darurat...");
             await AmbilDanKirimScreenshot("ALERT");
         }
     }
 
     private static async void OnRenamed(object source, RenamedEventArgs e)
     {
-        // =========================================================================
-        // EMERGENSI FILTER: Anti Infinite Loop
-        // =========================================================================
         if (string.IsNullOrEmpty(e.FullPath) || 
+            e.FullPath.IndexOf("$recycle.bin", StringComparison.OrdinalIgnoreCase) >= 0 || 
+            e.FullPath.IndexOf("recycle.bin", StringComparison.OrdinalIgnoreCase) >= 0 ||  
             e.FullPath.IndexOf("xampp", StringComparison.OrdinalIgnoreCase) >= 0 ||
             e.FullPath.IndexOf("uji coba", StringComparison.OrdinalIgnoreCase) >= 0 || 
             e.FullPath.IndexOf("dlp-karyawan", StringComparison.OrdinalIgnoreCase) >= 0 || 
@@ -204,25 +169,21 @@ class Program
             e.FullPath.IndexOf("pagefile.sys", StringComparison.OrdinalIgnoreCase) >= 0 || 
             e.FullPath.IndexOf("ib_logfile", StringComparison.OrdinalIgnoreCase) >= 0 ||
             e.FullPath.IndexOf("ibdata", StringComparison.OrdinalIgnoreCase) >= 0)
-        {
-            return; 
-        }
+        { return; }
 
         string pathMentah = e.FullPath.ToLower();
         string namaMentah = (e.Name ?? "").ToLower();
 
-        if (pathMentah.Contains(@"c:\windows") || 
-            pathMentah.Contains(@"c:\program files") || 
-            pathMentah.Contains(@"c:\program data") || 
-            pathMentah.Contains(@"\appdata\") ||
+        if (pathMentah.Contains(@"c:\windows") || pathMentah.Contains(@"c:\program files") || 
+            pathMentah.Contains(@"c:\program data") || pathMentah.Contains(@"\appdata\") ||
             pathMentah.Contains(@"\onedrive\"))
-        {
-            return; 
-        }
+        { return; }
 
-        if (namaMentah.StartsWith("~$") || namaMentah.EndsWith(".tmp") || namaMentah.EndsWith(".log") || namaMentah.EndsWith(".ini")) return;
+        if (namaMentah.StartsWith("~$") || namaMentah.EndsWith(".tmp") || 
+            namaMentah.EndsWith(".pfd") || namaMentah.EndsWith(".log") || 
+            namaMentah.EndsWith(".ini")) 
+        { return; }
         
-        Console.WriteLine($"[TERDETEKSI] Ganti nama file: {e.OldName} -> {e.Name}");
         await KirimLogKeServer("EDIT", e.Name ?? "Unknown_File", e.FullPath);
     }
 
@@ -243,14 +204,12 @@ class Program
 
                 ImageCodecInfo jpegCodec = ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
                 EncoderParameters parameterKompresi = new EncoderParameters(1);
-                
                 parameterKompresi.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 35L); 
 
                 using (MemoryStream ms = new MemoryStream())
                 {
                     bitmapAsli.Save(ms, jpegCodec, parameterKompresi);
                     byte[] byteGambar = ms.ToArray();
-                    
                     string stringBase64 = Convert.ToBase64String(byteGambar);
 
                     var payloadSS = new {
@@ -261,26 +220,17 @@ class Program
 
                     string jsonSS = JsonSerializer.Serialize(payloadSS);
                     var konten = new StringContent(jsonSS, Encoding.UTF8, "application/json");
-                    
                     await client.PostAsync(ScreenshotUrl, konten);
-                    Console.WriteLine($"[CCTV GAMBAR] Berhasil kirim ({pemicu}) - Ukuran Optimal: {byteGambar.Length / 1024} KB");
                 }
             }
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[CCTV GAMBAR OFF] Gagal jepret: {ex.Message}");
-        }
-        finally
-        {
-            _sedangMemprosesGambar = false; 
-        }
+        catch { }
+        finally { _sedangMemprosesGambar = false; }
     }
 
     private static async Task KirimLogKeServer(string aksi, string namaFile, string pathFile)
     {
-        try
-        {
+        try {
             var logPayload = new { mac = MacAddressPC, tipe_aksi = aksi, nama_file = namaFile, path_file = pathFile };
             string jsonLog = JsonSerializer.Serialize(logPayload);
             var konten = new StringContent(jsonLog, Encoding.UTF8, "application/json");
@@ -288,19 +238,25 @@ class Program
         } catch {}
     }
 
-    private static async Task KirimIdentitasKeServer(string ip, string cpu)
+    // FITUR BARU: Metode dibuat public agar FormSetting bisa memanggil ulang saat disave
+    public static async Task KirimIdentitasKeServer()
     {
         try {
-            var payload = new { nama = NamaKaryawan, divisi = DivisiKaryawan, mac = MacAddressPC, ip = ip, cpu = cpu };
+            var payload = new { 
+                nama = DataConfig.NamaKaryawan, 
+                divisi = DataConfig.Divisi, 
+                jenis_perangkat = DataConfig.JenisPerangkat, 
+                mac = MacAddressPC, 
+                ip = AmbilLocalIP(), 
+                cpu = AmbilCpuNama() 
+            };
             string json = JsonSerializer.Serialize(payload);
             var konten = new StringContent(json, Encoding.UTF8, "application/json");
             await client.PostAsync(ServerUrl, konten);
-            Console.WriteLine($"[SUKSES] Status Agen: ONLINE.");
         } catch {}
     }
 
-    private static string AmbilMacAddress()
-    {
+    private static string AmbilMacAddress() {
         try { var interfaceAktif = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(i => i.OperationalStatus == OperationalStatus.Up); return interfaceAktif != null ? string.Join(":", interfaceAktif.GetPhysicalAddress().GetAddressBytes().Select(b => b.ToString("X2"))) : "00:00:00:00:00:00"; } catch { return "ERROR_MAC"; }
     }
     private static string AmbilLocalIP() {
@@ -308,5 +264,144 @@ class Program
     }
     private static string AmbilCpuNama() {
         try { return Environment.GetEnvironmentVariable("PROCESSOR_IDENTIFIER") ?? "Windows Device"; } catch { return "Windows Device"; }
+    }
+}
+
+// =========================================================================
+// UI SILUMAN & HOTKEY LISTENER (CTRL + SHIFT + U)
+// =========================================================================
+public class HiddenForm : Form
+{
+    [DllImport("user32.dll")]
+    private static extern bool RegisterHotKey(IntPtr hWnd, int id, int fsModifiers, int vk);
+    [DllImport("user32.dll")]
+    private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+    private const int MOD_ALT = 0x0001;
+    private const int MOD_CONTROL = 0x0002;
+    private const int MOD_SHIFT = 0x0004;
+    private const int WM_HOTKEY = 0x0312;
+    private const int HOTKEY_ID = 9000;
+
+    private static string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
+
+    public HiddenForm()
+    {
+        // Menyembunyikan form 100%
+        this.Opacity = 0;
+        this.ShowInTaskbar = false;
+        this.WindowState = FormWindowState.Minimized;
+        this.FormBorderStyle = FormBorderStyle.None;
+
+        MuatConfig();
+
+        // Mendaftarkan Hotkey: Ctrl + Shift + U
+        RegisterHotKey(this.Handle, HOTKEY_ID, MOD_CONTROL | MOD_SHIFT, (int)Keys.U);
+
+        // Menjalankan CCTV secara asinkron di background
+        _ = TrackerAgent.MulaiSistemCCTV();
+    }
+
+    private void MuatConfig()
+    {
+        if (File.Exists(configPath))
+        {
+            try {
+                string json = File.ReadAllText(configPath);
+                TrackerAgent.DataConfig = JsonSerializer.Deserialize<ConfigKaryawan>(json) ?? new ConfigKaryawan();
+            } catch {}
+        }
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        base.WndProc(ref m);
+        if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == HOTKEY_ID)
+        {
+            MunculkanFormSetting();
+        }
+    }
+
+    private void MunculkanFormSetting()
+    {
+        FormSetting settingForm = new FormSetting();
+        settingForm.ShowDialog(); 
+    }
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        UnregisterHotKey(this.Handle, HOTKEY_ID);
+        base.OnFormClosing(e);
+    }
+}
+
+// =========================================================================
+// UI POP-UP PENGATURAN (MUNCUL SAAT HOTKEY DITEKAN)
+// =========================================================================
+public class FormSetting : Form
+{
+    private TextBox txtNama;
+    private TextBox txtDivisi;
+    private ComboBox cmbPerangkat;
+    private Button btnSimpan;
+
+    public FormSetting()
+    {
+        this.Text = "Admin Setup - Identitas Agen";
+        this.Size = new Size(350, 250);
+        this.StartPosition = FormStartPosition.CenterScreen;
+        this.FormBorderStyle = FormBorderStyle.FixedToolWindow;
+        this.TopMost = true; 
+
+        Label lblNama = new Label() { Text = "Nama Karyawan:", Left = 20, Top = 20, Width = 100 };
+        txtNama = new TextBox() { Left = 120, Top = 20, Width = 180, Text = TrackerAgent.DataConfig.NamaKaryawan };
+
+        Label lblDivisi = new Label() { Text = "Divisi / Jabatan:", Left = 20, Top = 60, Width = 100 };
+        txtDivisi = new TextBox() { Left = 120, Top = 60, Width = 180, Text = TrackerAgent.DataConfig.Divisi };
+
+        Label lblPerangkat = new Label() { Text = "Jenis Perangkat:", Left = 20, Top = 100, Width = 100 };
+        cmbPerangkat = new ComboBox() { Left = 120, Top = 100, Width = 180, DropDownStyle = ComboBoxStyle.DropDownList };
+        cmbPerangkat.Items.AddRange(new string[] { "Laptop", "Komputer" });
+        cmbPerangkat.SelectedItem = TrackerAgent.DataConfig.JenisPerangkat;
+
+        btnSimpan = new Button() { Text = "SIMPAN & KIRIM", Left = 120, Top = 150, Width = 180, BackColor = Color.LightGreen };
+        btnSimpan.Click += BtnSimpan_Click;
+
+        this.Controls.Add(lblNama); this.Controls.Add(txtNama);
+        this.Controls.Add(lblDivisi); this.Controls.Add(txtDivisi);
+        this.Controls.Add(lblPerangkat); this.Controls.Add(cmbPerangkat);
+        this.Controls.Add(btnSimpan);
+    }
+
+    private void BtnSimpan_Click(object? sender, EventArgs e)
+    {
+        TrackerAgent.DataConfig.NamaKaryawan = txtNama.Text;
+        TrackerAgent.DataConfig.Divisi = txtDivisi.Text;
+        TrackerAgent.DataConfig.JenisPerangkat = cmbPerangkat.SelectedItem?.ToString() ?? "Komputer";
+
+        string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
+        File.WriteAllText(configPath, JsonSerializer.Serialize(TrackerAgent.DataConfig, new JsonSerializerOptions { WriteIndented = true }));
+
+        MessageBox.Show("Data diupdate! Mengirim ke server...", "Sukses", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        
+        // Panggil ulang fungsi kirim identitas biar database langsung update
+        _ = TrackerAgent.KirimIdentitasKeServer();
+
+        this.Close(); 
+    }
+}
+
+// =========================================================================
+// ENTRY POINT APLIKASI
+// =========================================================================
+static class ProgramUtama
+{
+    [STAThread]
+    static void Main()
+    {
+        Application.EnableVisualStyles();
+        Application.SetCompatibleTextRenderingDefault(false);
+        // Memulai aplikasi dengan menjalankan form siluman
+        Application.Run(new HiddenForm()); 
     }
 }

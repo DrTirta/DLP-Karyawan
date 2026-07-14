@@ -51,24 +51,34 @@ app.post('/api/report-hardware', (req, res) => {
         const mac = dataMasuk.mac;
         const nama = dataMasuk.nama || "Tanpa Nama";
         const divisi = dataMasuk.divisi || "Umum";
+        
+        // [TAMBAHAN BARU] Tangkap data jenis perangkat dari C#
+        const jenis_perangkat = dataMasuk.jenis_perangkat || "Komputer"; 
+        
         const ip = dataMasuk.ip || "0.0.0.0";
         const cpu = dataMasuk.cpu || "Windows Device";
 
+        // [TAMBAHAN BARU] Masukkan jenis_perangkat ke memori sementara
         daftarAgenKomputer[mac] = {
-            nama_karyawan: nama, divisi: divisi, mac: mac, ip: ip, cpu: cpu,
+            nama_karyawan: nama, divisi: divisi, jenis_perangkat: jenis_perangkat, mac: mac, ip: ip, cpu: cpu,
             status: "ONLINE", waktu_update: new Date().toLocaleTimeString()
         };
 
+        // [TAMBAHAN BARU] Tambahkan kolom jenis_perangkat ke Query SQL
         const queryHardware = `
-            INSERT INTO komputer_karyawan (mac, nama_karyawan, divisi, ip_address, cpu_name, status)
-            VALUES (?, ?, ?, ?, ?, 'ONLINE')
+            INSERT INTO komputer_karyawan (mac, nama_karyawan, divisi, jenis_perangkat, ip_address, cpu_name, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'ONLINE')
             ON DUPLICATE KEY UPDATE 
-                nama_karyawan = ?, divisi = ?, ip_address = ?, cpu_name = ?, status = 'ONLINE'
+                nama_karyawan = ?, divisi = ?, jenis_perangkat = ?, ip_address = ?, cpu_name = ?, status = 'ONLINE'
         `;
 
-        db.query(queryHardware, [mac, nama, divisi, ip, cpu, nama, divisi, ip, cpu], (err, result) => {
-            if (err) return res.status(500).json({ status: "GAGAL" });
-            console.log(`[DATABASE SPEK] Identitas komputer ${nama} berhasil dikunci ke DB.`);
+        // [TAMBAHAN BARU] Sisipkan variabel jenis_perangkat ke dalam array db.query (diisi 2x untuk INSERT dan UPDATE)
+        db.query(queryHardware, [mac, nama, divisi, jenis_perangkat, ip, cpu, nama, divisi, jenis_perangkat, ip, cpu], (err, result) => {
+            if (err) {
+                console.error("Error SQL Hardware:", err.message); // Tambahan console log biar gampang debug
+                return res.status(500).json({ status: "GAGAL" });
+            }
+            console.log(`[DATABASE SPEK] Identitas ${jenis_perangkat} milik ${nama} berhasil dikunci ke DB.`);
             return res.json({ status: "OK" });
         });
     } else {
@@ -77,7 +87,7 @@ app.post('/api/report-hardware', (req, res) => {
 });
 
 // =========================================================================
-// 2. ENDPOINT POST: SIMPAN LOG AKTIVITAS FILE
+// 2. ENDPOINT POST: SIMPAN LOG AKTIVITAS FILE (DITAMBAH PATH ASLI)
 // =========================================================================
 app.post('/api/report-activity', (req, res) => {
     const logBaru = req.body;
@@ -90,13 +100,17 @@ app.post('/api/report-activity', (req, res) => {
         const ip = infoKaryawan.ip || "0.0.0.0";
         const tipeAksi = logLogAktivitasTipe(logBaru.tipe_aksi);
         const namaFile = logBaru.nama_file;
+        
+        // FITUR BARU: Menangkap jalur file asli
+        const pathFile = logBaru.path_file || "Lokasi tidak diketahui";
 
+        // FITUR BARU: SQL Insert ditambah kolom path_file
         const queryInsert = `
-            INSERT INTO log_pantau_karyawan (nama_karyawan, divisi, mac_address, ip_address, tipe_aksi, nama_file, waktu_kejadian) 
-            VALUES (?, ?, ?, ?, ?, ?, NOW())
+            INSERT INTO log_pantau_karyawan (nama_karyawan, divisi, mac_address, ip_address, tipe_aksi, nama_file, path_file, waktu_kejadian) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
         `;
 
-        db.query(queryInsert, [namaKaryawan, divisi, mac, ip, tipeAksi, namaFile], (err, result) => {
+        db.query(queryInsert, [namaKaryawan, divisi, mac, ip, tipeAksi, namaFile, pathFile], (err, result) => {
             if (err) return res.status(500).json({ status: "GAGAL" });
             console.log(`[DATABASE AMAN] Berhasil mencatat aksi ${tipeAksi} untuk file: ${namaFile}`);
             return res.json({ status: "OK" });
@@ -173,6 +187,10 @@ app.get('/api/get-hardware-data', (req, res) => {
                 nama: row.nama_karyawan,
                 nama_karyawan: row.nama_karyawan,
                 divisi: row.divisi,
+                
+                // [TAMBAHAN BARU] Kirim data jenis perangkat ke Dashboard index.html
+                jenis_perangkat: row.jenis_perangkat || "Komputer", 
+                
                 mac: row.mac,
                 ip: row.ip_address,
                 cpu: row.cpu_name,
@@ -229,7 +247,8 @@ app.get('/api/get-activity-logs', (req, res) => {
             mac: row.mac_address,
             tipe_aksi: row.tipe_aksi,
             nama_file: row.nama_file,
-            path_file: `IP: ${row.ip_address} | Terpantau otomatis di sistem database`,
+            // FITUR BARU: Menampilkan jalur asli dari database
+            path_file: `[IP: ${row.ip_address}] Lokasi: ${row.path_file || "Belum terekam"}`,
             waktu: new Date(row.waktu_kejadian).toLocaleString('id-ID')
         }));
 
