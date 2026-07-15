@@ -37,7 +37,7 @@ public static class TrackerAgent
     // =========================================================================
     // VARIABEL AUTO-UPDATE
     // =========================================================================
-    public const string APP_VERSION = "1.0.3"; 
+    public const string APP_VERSION = "1.0.4"; 
     
     // Pastikan pakai 'e' di kata Check
     private static readonly string UpdateCheckUrl = "http://10.62.8.173:3535/api/check-update"; 
@@ -427,7 +427,7 @@ public class FormSetting : Form
     public FormSetting()
     {
         this.Text = "Admin Setup - Identitas Agen";
-        this.Size = new Size(350, 310); // Tinggi ditambah dikit biar lega
+        this.Size = new Size(350, 310); 
         this.StartPosition = FormStartPosition.CenterScreen;
         this.FormBorderStyle = FormBorderStyle.FixedToolWindow;
         this.TopMost = true; 
@@ -436,6 +436,16 @@ public class FormSetting : Form
         // [BUG FIX] Sembunyi dari Taskbar biar turun ke "Background Processes"
         // =========================================================
         this.ShowInTaskbar = false; 
+
+        // =========================================================
+        // [LANGKAH 1 - FITUR IMMORTAL] Cegah mati saat tombol X (Silang) ditekan
+        // =========================================================
+        this.FormClosing += (s, e) => {
+            if (e.CloseReason == CloseReason.UserClosing) {
+                e.Cancel = true; // Batalin perintah mati
+                this.Hide();     // Sembunyi ke Background
+            }
+        };
 
         Label lblNama = new Label() { Text = "Nama Karyawan:", Left = 20, Top = 20, Width = 100 };
         txtNama = new TextBox() { Left = 120, Top = 20, Width = 180, Text = TrackerAgent.DataConfig.NamaKaryawan };
@@ -471,6 +481,7 @@ public class FormSetting : Form
         };
         btnLog.Click += (s, e) => {
             string pesanLog = "Update Log " + TrackerAgent.APP_VERSION + ":\n\n" +
+                              "- Fix: Immortal mode (Anti tombol X)\n" +
                               "- Fix: Stealth mode (Turun ke Background Processes)\n" +
                               "- Fitur: Teks versi & Tombol log update\n" +
                               "- Fitur: Kill Switch (Tombol Matikan Agen)\n" +
@@ -484,8 +495,6 @@ public class FormSetting : Form
         this.Controls.Add(lblPerangkat); this.Controls.Add(cmbPerangkat);
         this.Controls.Add(btnSimpan);
         this.Controls.Add(btnMati); 
-        
-        // Daftarin label versi & tombol log ke form
         this.Controls.Add(lblVersi); 
         this.Controls.Add(btnLog);
     }
@@ -504,7 +513,11 @@ public class FormSetting : Form
         // Panggil ulang fungsi kirim identitas biar database langsung update
         _ = TrackerAgent.KirimIdentitasKeServer();
 
-        this.Close(); 
+        // =========================================================
+        // [LANGKAH 2] Ubah this.Close() menjadi this.Hide()
+        // Biar habis disave, dia langsung masuk ke Background Processes
+        // =========================================================
+        this.Hide(); 
     }
 }
 
