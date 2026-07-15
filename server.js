@@ -13,6 +13,9 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // Daftarkan folder public agar file gambar di dalamnya bisa diakses langsung lewat browser
 app.use(express.static('public'));
 
+// Buka gerbang folder 'update' biar file .exe bisa di-download agen
+app.use('/update', express.static('update'));
+
 // =========================================================================
 // [PERBAIKAN] : KONEKSI DATABASE POOL (ANTI-CRASH)
 // =========================================================================
@@ -320,7 +323,7 @@ app.get('/api/get-screenshot-logs', (req, res) => {
 // =========================================================================
 // [FITUR BARU] : SISTEM AUTO UPDATE UNTUK AGEN C#
 // =========================================================================
-const APP_VERSION = "1.0.0"; // Ubah angka ini kalau lu naruh update file .exe baru
+const APP_VERSION = "1.0.3"; // Ubah angka ini kalau lu naruh update file .exe baru
 
 // Daftarkan folder 'update' (Lu harus bikin folder bernama 'update' di sebelah server.js)
 app.use('/update', express.static(path.join(__dirname, 'update')));
