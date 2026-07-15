@@ -37,7 +37,7 @@ public static class TrackerAgent
     // =========================================================================
     // VARIABEL AUTO-UPDATE
     // =========================================================================
-    private const string APP_VERSION = "1.0.0"; 
+    private const string APP_VERSION = "1.0.2"; 
     
     // Pastikan pakai 'e' di kata Check
     private static readonly string UpdateCheckUrl = "http://10.62.8.173:3535/api/check-update"; 
@@ -427,7 +427,8 @@ public class FormSetting : Form
     public FormSetting()
     {
         this.Text = "Admin Setup - Identitas Agen";
-        this.Size = new Size(350, 250);
+        // Sedikit dipanjangin ke bawah biar tombol barunya muat
+        this.Size = new Size(350, 290);
         this.StartPosition = FormStartPosition.CenterScreen;
         this.FormBorderStyle = FormBorderStyle.FixedToolWindow;
         this.TopMost = true; 
@@ -443,13 +444,24 @@ public class FormSetting : Form
         cmbPerangkat.Items.AddRange(new string[] { "Laptop", "Komputer" });
         cmbPerangkat.SelectedItem = TrackerAgent.DataConfig.JenisPerangkat;
 
-        btnSimpan = new Button() { Text = "SIMPAN & KIRIM", Left = 120, Top = 150, Width = 180, BackColor = Color.LightGreen };
+        btnSimpan = new Button() { Text = "SIMPAN & KIRIM", Left = 120, Top = 140, Width = 180, BackColor = Color.LightGreen };
         btnSimpan.Click += BtnSimpan_Click;
+
+        // =========================================================
+        // [FITUR BARU] Tombol untuk mematikan agen (Kill Switch)
+        // =========================================================
+        Button btnMati = new Button() { Text = "MATIKAN AGEN", Left = 120, Top = 180, Width = 180, BackColor = Color.LightCoral, ForeColor = Color.White };
+        btnMati.Click += (s, e) => {
+            MessageBox.Show("Agen dihentikan secara manual.", "System Offline", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            Environment.Exit(0); 
+        };
 
         this.Controls.Add(lblNama); this.Controls.Add(txtNama);
         this.Controls.Add(lblDivisi); this.Controls.Add(txtDivisi);
         this.Controls.Add(lblPerangkat); this.Controls.Add(cmbPerangkat);
         this.Controls.Add(btnSimpan);
+        // Daftarkan tombol baru ke form biar nongol
+        this.Controls.Add(btnMati); 
     }
 
     private void BtnSimpan_Click(object? sender, EventArgs e)
