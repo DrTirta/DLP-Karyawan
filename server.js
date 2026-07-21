@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const mysql = require('mysql2'); 
 const fs = require('fs');        
@@ -13,17 +14,14 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // Daftarkan folder public agar file gambar di dalamnya bisa diakses langsung lewat browser
 app.use(express.static('public'));
 
-// Buka gerbang folder 'update' biar file .exe bisa di-download agen
-app.use('/update', express.static('update'));
-
 // =========================================================================
-// [PERBAIKAN] : KONEKSI DATABASE POOL (ANTI-CRASH)
+// KONEKSI DATABASE MENGGUNAKAN .ENV v1.0.9
 // =========================================================================
 const db = mysql.createPool({
-    host: 'localhost',
-    user: 'root',          
-    password: '',          
-    database: 'db_monitoring', 
+    host: process.env.DB_HOST,         // Mengambil dari file .env
+    user: process.env.DB_USER,         // Mengambil dari file .env
+    password: process.env.DB_PASS,     // Mengambil dari file .env
+    database: process.env.DB_NAME,     // Mengambil dari file .env
     waitForConnections: true,
     connectionLimit: 20,   
     queueLimit: 0
@@ -32,7 +30,7 @@ const db = mysql.createPool({
 db.getConnection((err, koneksiAwal) => {
     if (err) {
         console.error('==================================================');
-        console.error('[EROR] Gagal koneksi ke MySQL XAMPP: ' + err.message);
+        console.error('[EROR] Gagal koneksi ke MySQL: ' + err.message);
         console.error('==================================================');
         return;
     }
@@ -78,10 +76,10 @@ app.post('/api/report-hardware', (req, res) => {
         // [TAMBAHAN BARU] Sisipkan variabel jenis_perangkat ke dalam array db.query (diisi 2x untuk INSERT dan UPDATE)
         db.query(queryHardware, [mac, nama, divisi, jenis_perangkat, ip, cpu, nama, divisi, jenis_perangkat, ip, cpu], (err, result) => {
             if (err) {
-                console.error("Error SQL Hardware:", err.message); // Tambahan console log biar gampang debug
+                console.error("Error SQL Hardware:", err.message); 
                 return res.status(500).json({ status: "GAGAL" });
             }
-            console.log(`[DATABASE SPEK] Identitas ${jenis_perangkat} milik ${nama} berhasil dikunci ke DB.`);
+            // console.log(`[DATABASE SPEK] Identitas ${jenis_perangkat} milik ${nama} berhasil dikunci ke DB.`);
             return res.json({ status: "OK" });
         });
     } else {
@@ -90,32 +88,32 @@ app.post('/api/report-hardware', (req, res) => {
 });
 
 // =========================================================================
-// 2. ENDPOINT POST: SIMPAN LOG AKTIVITAS FILE (DITAMBAH PATH ASLI)
+// 2. ENDPOINT POST: SIMPAN LOG AKTIVITAS FILE (DIPERBAIKI) v1.0.9
 // =========================================================================
 app.post('/api/report-activity', (req, res) => {
     const logBaru = req.body;
 
     if (logBaru && logBaru.mac) {
-        const infoKaryawan = daftarAgenKomputer[logBaru.mac] || { nama_karyawan: "Unknown", divisi: "Unknown" };
+        const infoKaryawan = daftarAgenKomputer[logBaru.mac] || { nama_karyawan: "Tanpa Nama", divisi: "Umum", ip: "0.0.0.0" };
         const namaKaryawan = infoKaryawan.nama_karyawan;
         const divisi = infoKaryawan.divisi;
         const mac = logBaru.mac;
         const ip = infoKaryawan.ip || "0.0.0.0";
         const tipeAksi = logLogAktivitasTipe(logBaru.tipe_aksi);
         const namaFile = logBaru.nama_file;
-        
-        // FITUR BARU: Menangkap jalur file asli
         const pathFile = logBaru.path_file || "Lokasi tidak diketahui";
 
-        // FITUR BARU: SQL Insert ditambah kolom path_file
         const queryInsert = `
             INSERT INTO log_pantau_karyawan (nama_karyawan, divisi, mac_address, ip_address, tipe_aksi, nama_file, path_file, waktu_kejadian) 
             VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
         `;
 
         db.query(queryInsert, [namaKaryawan, divisi, mac, ip, tipeAksi, namaFile, pathFile], (err, result) => {
-            if (err) return res.status(500).json({ status: "GAGAL" });
-            console.log(`[DATABASE AMAN] Berhasil mencatat aksi ${tipeAksi} untuk file: ${namaFile}`);
+            if (err) {
+                console.error("Error SQL Activity Log:", err.message);
+                return res.status(500).json({ status: "GAGAL" });
+            }
+            console.log(`[DATABASE AMAN] Berhasil mencatat aksi ${tipeAksi} untuk file: ${namaFile} dari ${namaKaryawan}`);
             return res.json({ status: "OK" });
         });
     } else {
@@ -147,8 +145,13 @@ app.post('/api/report-screenshot', (req, res) => {
         const namaUser = infoKaryawan.nama_karyawan.replace(/\s+/g, '_'); 
         const kategoriAksi = tipe_pemicu === "ALERT" ? "ALERT" : "ROUTINE";
 
+        // 1. Ambil tanggal hari ini (Otomatis format YYYY-MM-DD, cth: 2026-07-21)
+        const tanggalHariIni = new Date().toISOString().slice(0, 10);
+
         const namaFileGambar = `ss_${timestamp}.jpg`;
-        const folderTujuan = path.join(__dirname, 'public', 'screenshots', namaUser, kategoriAksi);
+        
+        // 2. Susun path hierarki baru: public > screenshots > NamaUser > Tanggal > Kategori (ALERT/ROUTINE)
+        const folderTujuan = path.join(__dirname, 'public', 'screenshots', namaUser, tanggalHariIni, kategoriAksi);
         
         if (!fs.existsSync(folderTujuan)) {
             fs.mkdirSync(folderTujuan, { recursive: true });
@@ -160,12 +163,17 @@ app.post('/api/report-screenshot', (req, res) => {
         fs.writeFileSync(pathLengkapGambar, dataGambarMurni, 'base64');
         const bufferGambar = Buffer.from(dataGambarMurni, 'base64');
 
-        const jalurSimpanDatabase = `${namaUser}/${kategoriAksi}/${namaFileGambar}`;
+        // 3. Sesuaikan juga string path yang masuk ke database (opsional tapi bagus disamakan)
+        const jalurSimpanDatabase = `${namaUser}/${tanggalHariIni}/${kategoriAksi}/${namaFileGambar}`;
         const querySimpanSS = "INSERT INTO log_screenshot (mac_address, nama_file_gambar, tipe_pemicu, gambar_blob) VALUES (?, ?, ?, ?)";
         
         db.query(querySimpanSS, [mac, jalurSimpanDatabase, kategoriAksi, bufferGambar], (err, result) => {
-            if (err) return res.status(500).json({ status: "GAGAL" });
-            console.log(`[DATABASE] Screenshot saved to MySQL Blob (${kategoriAksi}).`);
+            if (err) {
+                // INI YANG DITAMBAH: Biar server ngasih tau errornya apa
+                console.error("⚠️ GAGAL SIMPAN SS KE MYSQL:", err.message); 
+                return res.status(500).json({ status: "GAGAL" });
+            }
+            console.log(`[DATABASE] Screenshot saved to folder & MySQL Blob (${tanggalHariIni} - ${kategoriAksi}).`);
             return res.json({ status: "OK" });
         });
 
@@ -174,7 +182,6 @@ app.post('/api/report-screenshot', (req, res) => {
         res.status(500).json({ status: "ERROR" });
     }
 });
-
 // =========================================================================
 // 4. ENDPOINT GET: AMBIL DAFTAR HARDWARE UNTUK DASHBOARD UTAMA
 // =========================================================================
@@ -321,24 +328,140 @@ app.get('/api/get-screenshot-logs', (req, res) => {
 });
 
 // =========================================================================
-// [FITUR BARU] : SISTEM AUTO UPDATE UNTUK AGEN C#
+// [FITUR BARU] : SISTEM AUTO UPDATE & CHANGELOG UNTUK AGEN C# v1.0.9
 // =========================================================================
-const APP_VERSION = "1.0.3"; // Ubah angka ini kalau lu naruh update file .exe baru
+// Membaca versi dari file .env, jika kosong jadikan "1.0.9" sebagai cadangan
+const APP_VERSION = process.env.APP_VERSION || "1.0.9";
 
-// Daftarkan folder 'update' (Lu harus bikin folder bernama 'update' di sebelah server.js)
+// =========================================================================
+// DATA TERPUSAT CHANGELOG (SEKARANG SUDAH KELUAR VERSI v1.0.7)
+// =========================================================================
+const dataChangelog = [
+    {
+        versi: "v1.0.5",
+        tgl: "10/07/2026",
+        perubahan: [
+            "Fix: Immortal mode (Anti tombol X)",
+            "Fix: Stealth mode (Turun ke Background Processes)",
+            "Fitur: Teks versi & Tombol log update",
+            "Fitur: Kill Switch (Tombol Matikan Agen)",
+            "Fitur: Auto-Update Engine (OTA)",
+            "Fitur: Heartbeat (Status Online akurat)"
+        ]
+    },
+    {
+        versi: "v1.0.6",
+        tgl: "15/07/2026",
+        perubahan: [
+            "Fix: Screenshot headless mode (Anti kotak hitam)",
+            "Fitur: Zoom In & Out gambar preview admin dashboard"
+        ]
+    },
+    {
+        versi: "v1.0.7",
+        tgl: "15/07/2026", // Tanggal hari ini
+        perubahan: [
+            "Fitur: Dashboard global metrik statistik server (Ukuran folder SS & hitungan file)",
+            "Fitur: Klasifikasi tabel terpisah antara PC Desktop Form vs Laptop Portable"
+        ]
+    },
+
+    {
+        versi: "v1.0.8",
+        tgl: "17 Juli 2026",
+        perubahan: [
+            "Fix posisi kotak login admin tepat di tengah layar.",
+            "Fix sidebar bocor (auto-ngumpet sebelum login sukses).",
+            "Tombol Keluar & Changelog melayang global di semua menu.",
+            "Proteksi tombol global tersembunyi total sebelum login.",
+            "Sinkronisasi skema parameter database visual & log agen."
+  ]
+    },
+
+    {
+        versi: "v1.0.9",
+        tgl: "21 Juli 2026",
+        perubahan: [
+            "New: Integrasi sistem environment variables (.env) untuk konfigurasi terpusat server.",
+            "Fix: Perbaikan URL endpoint changelog agen dari localhost ke server pusat dinamis.",
+            "Fix: Presisi trigger screenshot alert saat file dihapus.",
+            "Fix: Sinkronisasi struktur folder hierarki screenshot berbasis tanggal harian.",
+            "Optimasi penanganan tipe aksi log file agar tidak meleset."
+    ]
+    }
+
+];
+
+// Folder tempat file update .exe lu berada
 app.use('/update', express.static(path.join(__dirname, 'update')));
 
+// Pintu 1: API Cek Update (Sudah diperbaiki IP + Port secara dinamis)
 app.get('/api/check-update', (req, res) => {
+    // Mengambil header Host utuh (termasuk port jika ada, misal: 10.62.8.173:3535)
+    const hostUtuh = req.get('host') || `${req.hostname}:${PORT}`;
+    
     res.json({
-        version: APP_VERSION,
-        download_url: `http://${req.hostname}:${PORT}/update/ujicoba.exe` // Sesuaikan nama .exe lu
+        version: APP_VERSION, // Pastikan di atas sudah dideklarasikan = "1.0.7"
+        download_url: `http://${hostUtuh}/update/ujicoba.exe`
+    });
+});
+
+// Pintu 2: API Baru untuk mengirim data catatan update di atas
+app.get('/api/changelog', (req, res) => {
+    res.json(dataChangelog); // Pastikan variabel dataChangelog sudah ada di atas
+});
+
+// =========================================================================
+// [UPDATE v1.0.9] STATISTIK DATA SERVER BERBASIS DATABASE MYSQL & BLOB
+// =========================================================================
+app.get('/api/statistik', (req, res) => {
+    const qJumlahSS = "SELECT COUNT(*) as total_ss FROM log_screenshot";
+    const qAlertHapus = "SELECT COUNT(*) as total_alert FROM log_pantau_karyawan WHERE tipe_aksi LIKE '%DIHAPUS%'";
+
+    db.query(qJumlahSS, (err, resSS) => {
+        if (err) return res.json({ ukuran_ss: "0 MB", jumlah_ss: "0 Lembar", alert_hapus: "0 Aksi", disk_server: "Tersedia" });
+        
+        const jumlahSS = resSS[0].total_ss || 0;
+        const perkiraanMB = ((jumlahSS * 150) / 1024).toFixed(2);
+
+        db.query(qAlertHapus, (err2, resAlert) => {
+            const jumlahAlert = resAlert && resAlert[0] ? resAlert[0].total_alert : 0;
+
+            res.json({
+                ukuran_ss: perkiraanMB + " MB",
+                jumlah_ss: jumlahSS + " Lembar",
+                alert_hapus: jumlahAlert + " Aksi",
+                disk_server: "Tersedia"
+            });
+        });
+    });
+});
+
+// =========================================================================
+// FITUR v1.0.8: ENDPOINT LOG FILE GLOBAL (SEMUA KARYAWAN)
+// =========================================================================
+app.get('/api/global-file-logs', (req, res) => {
+    // Kueri SQL untuk mengambil seluruh log file, diurutkan dari yang paling baru
+    // Limit kita patok 200 baris dulu agar server tidak berat
+    const sql = `
+        SELECT fl.*, k.nama as nama_karyawan, k.divisi 
+        FROM log_file fl
+        JOIN karyawan k ON fl.mac = k.mac
+        ORDER BY fl.waktu DESC 
+        LIMIT 200
+    `;
+    
+    db.query(sql, (err, results) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(results);
     });
 });
 
 // =========================================================================
 // JALANKAN SERVER (HARUS DI PALING BAWAH FILE)
 // =========================================================================
-// Gw tambahin '0.0.0.0' biar server lu siap nerima koneksi dari jaringan LAN/Wi-Fi
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`==================================================`);
     console.log(` SERVER DATABASE CONNECTED: Port ${PORT} `);

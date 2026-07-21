@@ -14,6 +14,7 @@ using System.Drawing;
 using System.Drawing.Imaging; 
 using System.Windows.Forms;
 using System.Runtime.InteropServices;
+using System.Management;
 
 // =========================================================================
 // KELAS KONFIGURASI IDENTITAS
@@ -37,7 +38,7 @@ public static class TrackerAgent
     // =========================================================================
     // VARIABEL AUTO-UPDATE
     // =========================================================================
-    public const string APP_VERSION = "1.0.4"; 
+    public const string APP_VERSION = "1.0.9"; 
     
     // Pastikan pakai 'e' di kata Check
     private static readonly string UpdateCheckUrl = "http://10.62.8.173:3535/api/check-update"; 
@@ -128,56 +129,87 @@ public static class TrackerAgent
     }
 
     private static async void OnChanged(object source, FileSystemEventArgs e)
+{
+    // =========================================================================
+    // 1. FILTER PENYARING SAMPAH & DIREKTORI SISTEM v1.0.9
+    // =========================================================================
+    if (string.IsNullOrEmpty(e.FullPath) || 
+        e.FullPath.IndexOf("$recycle.bin", StringComparison.OrdinalIgnoreCase) >= 0 || 
+        e.FullPath.IndexOf("recycle.bin", StringComparison.OrdinalIgnoreCase) >= 0 ||  
+        e.FullPath.IndexOf("xampp", StringComparison.OrdinalIgnoreCase) >= 0 ||
+        e.FullPath.IndexOf("uji coba", StringComparison.OrdinalIgnoreCase) >= 0 || 
+        e.FullPath.IndexOf("dlp-karyawan", StringComparison.OrdinalIgnoreCase) >= 0 || 
+        e.FullPath.IndexOf("public", StringComparison.OrdinalIgnoreCase) >= 0 || 
+        e.FullPath.IndexOf("programdata", StringComparison.OrdinalIgnoreCase) >= 0 || 
+        e.FullPath.IndexOf("pagefile.sys", StringComparison.OrdinalIgnoreCase) >= 0 || 
+        e.FullPath.IndexOf("ib_logfile", StringComparison.OrdinalIgnoreCase) >= 0 ||
+        e.FullPath.IndexOf("ibdata", StringComparison.OrdinalIgnoreCase) >= 0)
+    { return; }
+
+    string pathMentah = e.FullPath.ToLower();
+    string namaMentah = (e.Name ?? "").ToLower();
+
+    if (pathMentah.Contains(@"c:\windows") || pathMentah.Contains(@"c:\program files") || 
+        pathMentah.Contains(@"c:\program data") || pathMentah.Contains(@"\appdata\") ||
+        pathMentah.Contains(@"\application data\") || pathMentah.Contains(@"\local settings\") ||
+        pathMentah.Contains(@"\onedrive\") || pathMentah.Contains(@"microsoft\winsxs") ||
+        pathMentah.Contains(@"\search\data\"))
+    { return; }
+
+    if (namaMentah.StartsWith("~$") || namaMentah.EndsWith(".tmp") ||
+        namaMentah.EndsWith(".pfd") || namaMentah.EndsWith(".log") || 
+        namaMentah.EndsWith(".ini") || namaMentah.EndsWith(".db") ||  
+        namaMentah.EndsWith(".crdownload") || namaMentah.Contains("~wrd") || 
+        namaMentah.Contains("~wrl"))
+    { return; }
+
+    // =========================================================================
+    // 2. KLASIFIKASI TIPE AKSI YANG TEGAS (ANTI-MELENCENG) v1.0.8
+    // =========================================================================
+    string tipeAksi = "UNKNOWN";
+
+    if (e.ChangeType == WatcherChangeTypes.Created)
     {
-        if (string.IsNullOrEmpty(e.FullPath) || 
-            e.FullPath.IndexOf("$recycle.bin", StringComparison.OrdinalIgnoreCase) >= 0 || 
-            e.FullPath.IndexOf("recycle.bin", StringComparison.OrdinalIgnoreCase) >= 0 ||  
-            e.FullPath.IndexOf("xampp", StringComparison.OrdinalIgnoreCase) >= 0 ||
-            e.FullPath.IndexOf("uji coba", StringComparison.OrdinalIgnoreCase) >= 0 || 
-            e.FullPath.IndexOf("dlp-karyawan", StringComparison.OrdinalIgnoreCase) >= 0 || 
-            e.FullPath.IndexOf("public", StringComparison.OrdinalIgnoreCase) >= 0 || 
-            e.FullPath.IndexOf("programdata", StringComparison.OrdinalIgnoreCase) >= 0 || 
-            e.FullPath.IndexOf("pagefile.sys", StringComparison.OrdinalIgnoreCase) >= 0 || 
-            e.FullPath.IndexOf("ib_logfile", StringComparison.OrdinalIgnoreCase) >= 0 ||
-            e.FullPath.IndexOf("ibdata", StringComparison.OrdinalIgnoreCase) >= 0)
-        { return; }
-
-        string pathMentah = e.FullPath.ToLower();
-        string namaMentah = (e.Name ?? "").ToLower();
-
-        if (pathMentah.Contains(@"c:\windows") || pathMentah.Contains(@"c:\program files") || 
-            pathMentah.Contains(@"c:\program data") || pathMentah.Contains(@"\appdata\") ||
-            pathMentah.Contains(@"\application data\") || pathMentah.Contains(@"\local settings\") ||
-            pathMentah.Contains(@"\onedrive\") || pathMentah.Contains(@"microsoft\winsxs") ||
-            pathMentah.Contains(@"\search\data\"))
-        { return; }
-
-        if (namaMentah.StartsWith("~$") || namaMentah.EndsWith(".tmp") ||
-            namaMentah.EndsWith(".pfd") || namaMentah.EndsWith(".log") || 
-            namaMentah.EndsWith(".ini") || namaMentah.EndsWith(".db") ||  
-            namaMentah.EndsWith(".crdownload") || namaMentah.Contains("~wrd") || 
-            namaMentah.Contains("~wrl"))
-        { return; }
-
-        string tipeAksi = e.ChangeType.ToString();
-
-        if (e.ChangeType == WatcherChangeTypes.Changed)
-        {
-            var selisihWaktu = DateTime.Now - _waktuTerakhirTerdeteksi;
-            if (e.FullPath == _fileTerakhirTerdeteksi && selisihWaktu.TotalMilliseconds < 300) { tipeAksi = "SAVE"; }
-            else { tipeAksi = "EDIT"; }
-
-            _fileTerakhirTerdeteksi = e.FullPath;
-            _waktuTerakhirTerdeteksi = DateTime.Now;
-        }
-
-        await KirimLogKeServer(tipeAksi, e.Name ?? "Unknown_File", e.FullPath);
-
-        if (tipeAksi == "Deleted")
-        {
-            await AmbilDanKirimScreenshot("ALERT");
-        }
+        tipeAksi = "Created";
     }
+    else if (e.ChangeType == WatcherChangeTypes.Deleted)
+    {
+        tipeAksi = "Deleted"; // Pastikan status hapus tertulis tegas
+    }
+    else if (e.ChangeType == WatcherChangeTypes.Changed)
+    {
+        var selisihWaktu = DateTime.Now - _waktuTerakhirTerdeteksi;
+        if (e.FullPath == _fileTerakhirTerdeteksi && selisihWaktu.TotalMilliseconds < 300) 
+        { 
+            tipeAksi = "SAVE"; 
+        }
+        else 
+        { 
+            tipeAksi = "EDIT"; 
+        }
+
+        _fileTerakhirTerdeteksi = e.FullPath;
+        _waktuTerakhirTerdeteksi = DateTime.Now;
+    }
+    else
+    {
+        tipeAksi = e.ChangeType.ToString();
+    }
+
+    // =========================================================================
+    // 3. EKSEKUSI KIRIM KE SERVER JEMBATAN (NODE.JS)  v1.0.8
+    // =========================================================================
+    
+    // Kirim laporan teks log aktivitas file dulu
+    await KirimLogKeServer(tipeAksi, e.Name ?? "Unknown_File", e.FullPath);
+
+    // Jika file terdeteksi DIHAPUS, langsung panggil tangkapan layar berlabel ALERT
+    if (tipeAksi.Equals("Deleted", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.WriteLine($"[ALERT TRIGGER] File dihapus terdeteksi: {e.Name}. Mengambil screenshot darurat...");
+        await AmbilDanKirimScreenshot("ALERT");
+    }
+}
 
     private static async void OnRenamed(object source, RenamedEventArgs e)
     {
@@ -211,45 +243,51 @@ public static class TrackerAgent
     }
 
     private static async Task AmbilDanKirimScreenshot(string pemicu)
+{
+    _sedangMemprosesGambar = true; 
+    try
     {
-        _sedangMemprosesGambar = true; 
-        try
+        // AMBIL RESOLUSI LAYAR YANG SEDANG AKTIF SECARA DINAMIS
+        int lebarAktif = System.Windows.Forms.Screen.PrimaryScreen.Bounds.Width;
+        int tinggiAktif = System.Windows.Forms.Screen.PrimaryScreen.Bounds.Height;
+
+        // Jika tidak memakai Windows Forms (misal di .NET Core Console biasa), gunakan cara alternatif ini:
+        // int lebarAktif = (int)System.Windows.SystemParameters.PrimaryScreenWidth;
+        // int tinggiAktif = (int)System.Windows.SystemParameters.PrimaryScreenHeight;
+
+        using (Bitmap bitmapAsli = new Bitmap(lebarAktif, tinggiAktif))
         {
-            int lebarAsli = 1920; 
-            int tinggiAsli = 1080;
-
-            using (Bitmap bitmapAsli = new Bitmap(lebarAsli, tinggiAsli))
+            using (Graphics gAsli = Graphics.FromImage(bitmapAsli))
             {
-                using (Graphics gAsli = Graphics.FromImage(bitmapAsli))
-                {
-                    gAsli.CopyFromScreen(0, 0, 0, 0, bitmapAsli.Size);
-                }
+                // Mengambil screenshot sesuai ukuran layar yang aktif saat ini
+                gAsli.CopyFromScreen(0, 0, 0, 0, bitmapAsli.Size);
+            }
 
-                ImageCodecInfo jpegCodec = ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
-                EncoderParameters parameterKompresi = new EncoderParameters(1);
-                parameterKompresi.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 35L); 
+            ImageCodecInfo jpegCodec = ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
+            EncoderParameters parameterKompresi = new EncoderParameters(1);
+            parameterKompresi.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 35L); 
 
-                using (MemoryStream ms = new MemoryStream())
-                {
-                    bitmapAsli.Save(ms, jpegCodec, parameterKompresi);
-                    byte[] byteGambar = ms.ToArray();
-                    string stringBase64 = Convert.ToBase64String(byteGambar);
+            using (MemoryStream ms = new MemoryStream())
+            {
+                bitmapAsli.Save(ms, jpegCodec, parameterKompresi);
+                byte[] byteGambar = ms.ToArray();
+                string stringBase64 = Convert.ToBase64String(byteGambar);
 
-                    var payloadSS = new {
-                        mac = MacAddressPC,
-                        tipe_pemicu = pemicu, 
-                        gambar_base64 = stringBase64
-                    };
+                var payloadSS = new {
+                    mac = MacAddressPC,
+                    tipe_pemicu = pemicu, 
+                    gambar_base64 = stringBase64
+                };
 
-                    string jsonSS = JsonSerializer.Serialize(payloadSS);
-                    var konten = new StringContent(jsonSS, Encoding.UTF8, "application/json");
-                    await client.PostAsync(ScreenshotUrl, konten);
-                }
+                string jsonSS = JsonSerializer.Serialize(payloadSS);
+                var konten = new StringContent(jsonSS, Encoding.UTF8, "application/json");
+                await client.PostAsync(ScreenshotUrl, konten);
             }
         }
-        catch { }
-        finally { _sedangMemprosesGambar = false; }
     }
+    catch { }
+    finally { _sedangMemprosesGambar = false; }
+}
 
     private static async Task KirimLogKeServer(string aksi, string namaFile, string pathFile)
     {
@@ -265,13 +303,16 @@ public static class TrackerAgent
     public static async Task KirimIdentitasKeServer()
     {
         try {
+            // Memanggil fungsi dari file terpisah HardwareMesin.cs
+            string spekLengkap = HardwareMesin.AmbilSpesifikasiRealWindows();
+
             var payload = new { 
                 nama = DataConfig.NamaKaryawan, 
                 divisi = DataConfig.Divisi, 
                 jenis_perangkat = DataConfig.JenisPerangkat, 
                 mac = MacAddressPC, 
                 ip = AmbilLocalIP(), 
-                cpu = AmbilCpuNama() 
+                spek_real = spekLengkap 
             };
             string json = JsonSerializer.Serialize(payload);
             var konten = new StringContent(json, Encoding.UTF8, "application/json");
@@ -338,13 +379,12 @@ del ""%~f0""
     private static string AmbilMacAddress() {
         try { var interfaceAktif = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(i => i.OperationalStatus == OperationalStatus.Up); return interfaceAktif != null ? string.Join(":", interfaceAktif.GetPhysicalAddress().GetAddressBytes().Select(b => b.ToString("X2"))) : "00:00:00:00:00:00"; } catch { return "ERROR_MAC"; }
     }
+    
     private static string AmbilLocalIP() {
         try { var host = Dns.GetHostEntry(Dns.GetHostName()); return host.AddressList.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork)?.ToString() ?? "127.0.0.1"; } catch { return "Unknown IP"; }
     }
-    private static string AmbilCpuNama() {
-        try { return Environment.GetEnvironmentVariable("PROCESSOR_IDENTIFIER") ?? "Windows Device"; } catch { return "Windows Device"; }
-    }
 }
+
 
 // =========================================================================
 // UI SILUMAN & HOTKEY LISTENER (CTRL + SHIFT + U)
@@ -368,7 +408,22 @@ public class HiddenForm : Form
     {
         // Menyembunyikan form 100%
         this.Opacity = 0;
-        this.ShowInTaskbar = false;
+        this.ShowInTaskbar = false; 
+        
+        // =========================================================
+        // [TAMBAHAN BARU v1.0.5] Copot ikon biar beneran turun kasta ke Background
+        // =========================================================
+        this.ShowIcon = false;
+
+        // =========================================================
+        // [LANGKAH 1 - FITUR IMMORTAL] Cegah mati saat tombol X (Silang) ditekan
+        // =========================================================
+        this.FormClosing += (s, e) => {
+            if (e.CloseReason == CloseReason.UserClosing) {
+                e.Cancel = true; // Batalin perintah mati
+                this.Hide();     // Sembunyi ke Background
+            }
+        };
         this.WindowState = FormWindowState.Minimized;
         this.FormBorderStyle = FormBorderStyle.None;
 
@@ -479,16 +534,47 @@ public class FormSetting : Form
         Button btnLog = new Button() { 
             Text = "?", Left = 60, Top = 225, Width = 25, Height = 25, BackColor = Color.LightGray 
         };
-        btnLog.Click += (s, e) => {
-            string pesanLog = "Update Log " + TrackerAgent.APP_VERSION + ":\n\n" +
-                              "- Fix: Immortal mode (Anti tombol X)\n" +
-                              "- Fix: Stealth mode (Turun ke Background Processes)\n" +
-                              "- Fitur: Teks versi & Tombol log update\n" +
-                              "- Fitur: Kill Switch (Tombol Matikan Agen)\n" +
-                              "- Fitur: Auto-Update Engine (OTA)\n" +
-                              "- Fitur: Heartbeat (Status Online akurat)";
-            MessageBox.Show(pesanLog, "Changelog " + TrackerAgent.APP_VERSION, MessageBoxButtons.OK, MessageBoxIcon.Information);
-        };
+        btnLog.Click += async (s, e) => {
+    try
+    {
+        using (System.Net.Http.HttpClient client = new System.Net.Http.HttpClient())
+        {
+            string urlApi = "http://10.62.8.173:3535/api/changelog"; 
+            string jsonRespons = await client.GetStringAsync(urlApi);
+            
+            using (System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(jsonRespons))
+            {
+                string teksChangelog = "=== RIWAYAT UPDATE SISTEM ===\n\n";
+                
+                foreach (System.Text.Json.JsonElement item in doc.RootElement.EnumerateArray())
+                {
+                    string versi = item.GetProperty("versi").GetString();
+                    string tgl = item.GetProperty("tgl").GetString();
+                    teksChangelog += $"📌 {versi} ({tgl})\n";
+                    
+                    System.Text.Json.JsonElement perubahan = item.GetProperty("perubahan");
+                    foreach (System.Text.Json.JsonElement poin in perubahan.EnumerateArray())
+                    {
+                        teksChangelog += $"  - {poin.GetString()}\n";
+                    }
+                    teksChangelog += "\n"; 
+                }
+                
+                MessageBox.Show(teksChangelog, "Log Perubahan Agen", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+    }
+    catch (Exception ex)
+        {
+    // Tampilkan pesan error aslinya dari C# biar kita tahu salahnya di mana
+        MessageBox.Show("Error Detail: " + ex.Message, "Debug Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+
+    //catch//
+    // {
+        //MessageBox.Show("Gagal mengambil data update dari server pusat.", "Koneksi Bermasalah", MessageBoxButtons.OK, MessageBoxIcon.Warning);//
+    //}//
+};
 
         this.Controls.Add(lblNama); this.Controls.Add(txtNama);
         this.Controls.Add(lblDivisi); this.Controls.Add(txtDivisi);
